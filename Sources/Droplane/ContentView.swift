@@ -28,6 +28,10 @@ struct ContentView: View {
                 } else {
                     EmptyDeviceView()
                 }
+                if model.activeCount > 0 {
+                    Divider()
+                    CopyProgressBar { openWindow(id: "transfers") }
+                }
             }
         }
         .navigationTitle(browser.title(model))
@@ -217,6 +221,49 @@ extension NSItemProvider {
                 c.resume(returning: data.flatMap { try? JSONDecoder().decode(PhoneRef.self, from: $0) })
             }
         }
+    }
+}
+
+/// Shown under the file list while anything is copying, so progress is visible without opening Transfers.
+struct CopyProgressBar: View {
+    @Environment(AppModel.self) private var model
+    let showTransfers: () -> Void
+
+    var body: some View {
+        let batches = Set(model.transfers.filter { !$0.isFinished }.map(\.batch))
+        let items = model.transfers.filter { batches.contains($0.batch) && !$0.isFolder }
+        let current = items.first { $0.state == .running } ?? items.first { !$0.isFinished }
+        let finished = items.filter(\.isFinished).count
+        let done = items.reduce(UInt64(0)) { $0 + $1.done }
+        let total = items.reduce(UInt64(0)) { $0 + $1.total }
+        HStack(spacing: 10) {
+            Image(systemName: current?.toPhone == true ? "arrow.up.circle" : "arrow.down.circle")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(current.map { "Copying \($0.name)" } ?? "Copying…").lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(items.count > 1 ? "\(min(finished + 1, items.count)) of \(items.count)" : "")
+                        .foregroundStyle(.secondary).monospacedDigit()
+                }
+                ProgressView(value: model.activeProgress).progressViewStyle(.linear)
+                Text("\(ByteCountFormatter.string(fromByteCount: Int64(done), countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file))")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            .font(.callout)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: showTransfers)
+            .help("Show Transfers")
+            Button { model.cancelAll() } label: { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Stop all copies")
+                .accessibilityLabel("Stop all copies")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
     }
 }
 
