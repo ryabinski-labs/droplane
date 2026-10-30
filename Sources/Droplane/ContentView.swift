@@ -166,8 +166,14 @@ struct Sidebar: View {
                     Text(model.device?.displayName ?? "Phone")
                     Spacer()
                     if model.device != nil {
-                        Button { model.eject() } label: { Image(systemName: "eject.fill") }
-                            .buttonStyle(.borderless)
+                        Button { model.eject() } label: {
+                            Image(systemName: "eject")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 18, height: 18)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
                             .help("Disconnect the phone")
                             .accessibilityLabel("Disconnect \(model.device?.displayName ?? "phone")")
                     }
