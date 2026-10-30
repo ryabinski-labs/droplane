@@ -10,8 +10,6 @@ Droplane is a free, open-source Mac app that copies files between an Android pho
 
 **[Download the latest release](https://github.com/ryabinski-labs/droplane/releases/latest)** (Apple Silicon Macs) · [How to install](#install) · [Quickstart](#quickstart)
 
-![Droplane copying a video from the Demo Phone's PrimeCam folder, with the Finder-style sidebar and a progress bar](docs/images/droplane.png)
-
 ## At a Glance
 
 | Question | Answer |
@@ -22,6 +20,8 @@ Droplane is a free, open-source Mac app that copies files between an Android pho
 | What is the outcome? | The phone's folders appear in a Finder-style window, and dragging files moves them, with progress and a Retry button if a copy fails. |
 | Project status | Pre-release. Downloads are ad-hoc signed, not yet signed with an Apple Developer ID or notarized, so macOS asks you to approve the first launch (steps below). |
 | License | MIT (see [LICENSE](LICENSE)). Bundled libmtp and libusb are LGPL-2.1-or-later (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). |
+
+![Droplane copying a video from the Demo Phone's PrimeCam folder, with the Finder-style sidebar and a progress bar](docs/images/droplane.png)
 
 ## Use This When
 
