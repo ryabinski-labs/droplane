@@ -28,6 +28,10 @@ struct ContentView: View {
                 } else {
                     EmptyDeviceView()
                 }
+                if model.activeCount > 0 {
+                    Divider()
+                    CopyProgressBar { openWindow(id: "transfers") }
+                }
             }
         }
         .navigationTitle(browser.title(model))
@@ -149,12 +153,19 @@ struct Sidebar: View {
                     Label("Locked", systemImage: "lock").foregroundStyle(.secondary)
                 }
                 ForEach(model.storages) { s in
-                    Label(s.name, systemImage: s.name.localizedCaseInsensitiveContains("sd") ? "sdcard" : "internaldrive")
+                    HStack {
+                        Label(s.name, systemImage: s.name.localizedCaseInsensitiveContains("sd") ? "sdcard" : "internaldrive")
+                        Spacer(minLength: 4)
+                        // Like Finder's eject next to a mounted disk; one button for the whole phone.
+                        if s.id == model.storages.first?.id { EjectButton() }
+                    }
                         .tag(Location.phone(storage: s.id, path: []))
                         .onDrop(of: [.fileURL], isTargeted: nil) { upload($0, storage: s.id, folder: 0, name: s.name) }
                 }
                 ForEach(model.phonePlaces) { place in
-                    Label(place.name, systemImage: place.symbol)
+                    Group {
+                        if place.isPrimeCam { PrimeCamLabel() } else { Label(place.name, systemImage: place.symbol) }
+                    }
                         .tag(place.location)
                         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                             guard case .phone(let s, let path) = place.location, let folder = path.last else { return false }
@@ -162,16 +173,7 @@ struct Sidebar: View {
                         }
                 }
             } header: {
-                HStack {
-                    Text(model.device?.displayName ?? "Phone")
-                    Spacer()
-                    if model.device != nil {
-                        Button { model.eject() } label: { Image(systemName: "eject.fill") }
-                            .buttonStyle(.borderless)
-                            .help("Disconnect the phone")
-                            .accessibilityLabel("Disconnect \(model.device?.displayName ?? "phone")")
-                    }
-                }
+                Text(model.device?.displayName ?? "Phone")
             }
             Section("Mac") {
                 ForEach(MacPlaces.all) { place in
@@ -211,6 +213,83 @@ extension NSItemProvider {
                 c.resume(returning: data.flatMap { try? JSONDecoder().decode(PhoneRef.self, from: $0) })
             }
         }
+    }
+}
+
+/// Disconnects the phone, drawn like Finder's sidebar eject button.
+struct EjectButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button { model.eject() } label: {
+            Image(systemName: "eject")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("Disconnect the phone")
+        .accessibilityLabel("Disconnect \(model.device?.displayName ?? "phone")")
+    }
+}
+
+/// PrimeCam's mark: a white viewfinder gate with its red record dot.
+struct PrimeCamLabel: View {
+    static let red = Color(red: 0xE5 / 255, green: 0x23 / 255, blue: 0x3D / 255)
+
+    var body: some View {
+        Label {
+            Text("PrimeCam").fontWeight(.semibold)
+        } icon: {
+            ZStack {
+                Image(systemName: "viewfinder").foregroundStyle(Color.primary)
+                Circle().fill(Self.red).frame(width: 5, height: 5)
+            }
+        }
+    }
+}
+
+/// Shown under the file list while anything is copying, so progress is visible without opening Transfers.
+struct CopyProgressBar: View {
+    @Environment(AppModel.self) private var model
+    let showTransfers: () -> Void
+
+    var body: some View {
+        let batches = Set(model.transfers.filter { !$0.isFinished }.map(\.batch))
+        let items = model.transfers.filter { batches.contains($0.batch) && !$0.isFolder }
+        let current = items.first { $0.state == .running } ?? items.first { !$0.isFinished }
+        let finished = items.filter(\.isFinished).count
+        let done = items.reduce(UInt64(0)) { $0 + $1.done }
+        let total = items.reduce(UInt64(0)) { $0 + $1.total }
+        HStack(spacing: 10) {
+            Image(systemName: current?.toPhone == true ? "arrow.up.circle" : "arrow.down.circle")
+                .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack {
+                    Text(current.map { "Copying \($0.name)" } ?? "Copying…").lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Text(items.count > 1 ? "\(min(finished + 1, items.count)) of \(items.count)" : "")
+                        .foregroundStyle(.secondary).monospacedDigit()
+                }
+                ProgressView(value: model.activeProgress).progressViewStyle(.linear)
+                Text("\(ByteCountFormatter.string(fromByteCount: Int64(done), countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file))")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+            }
+            .font(.callout)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: showTransfers)
+            .help("Show Transfers")
+            Button { model.cancelAll() } label: { Image(systemName: "xmark.circle.fill") }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Stop all copies")
+                .accessibilityLabel("Stop all copies")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.bar)
+        .accessibilityElement(children: .contain)
     }
 }
 

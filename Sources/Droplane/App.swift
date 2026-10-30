@@ -3,6 +3,7 @@ import TransferCore
 
 @main
 struct DroplaneApp: App {
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var model = AppModel()
 
     var body: some Scene {
@@ -21,6 +22,17 @@ struct DroplaneApp: App {
     }
 }
 
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// SwiftUI doesn't reopen a closed browser window from the Dock, so open one through File > New Window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, let file = sender.mainMenu?.items.first(where: { $0.submenu?.title == "File" })?.submenu,
+              let index = file.items.firstIndex(where: { $0.keyEquivalent == "n" && $0.keyEquivalentModifierMask == .command })
+        else { return true }
+        file.performActionForItem(at: index)
+        return false
+    }
+}
+
 struct BrowserCommands: Commands {
     @FocusedValue(\.browser) private var browser
     let model: AppModel
@@ -34,7 +46,7 @@ struct BrowserCommands: Commands {
         CommandGroup(after: .toolbar) {
             Button(model.showHidden ? "Hide Hidden Files" : "Show Hidden Files") { model.showHidden.toggle() }
                 .keyboardShortcut(".", modifiers: [.command, .shift])
-            Button("Refresh") { browser?.reload(model) }
+            Button("Refresh") { browser?.reload(model); model.refreshStorages() }
                 .keyboardShortcut("r")
         }
         CommandMenu("Go") {

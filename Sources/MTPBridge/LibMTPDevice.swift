@@ -92,6 +92,8 @@ public final class LibMTPDevice: MTPDevice, @unchecked Sendable {
         let parent = folder == 0 ? LIBMTP_FILES_AND_FOLDERS_ROOT : folder
         var out: [DeviceEntry] = []
         var f = LIBMTP_Get_Files_And_Folders(dev, storage, parent)
+        // NULL is also what an empty folder returns, so only the error stack tells a failure apart.
+        if f == nil, LIBMTP_Get_Errorstack(dev) != nil { throw lastError("Couldn't open this folder") }
         while let file = f {
             let name = file.pointee.filename.map { String(cString: $0) } ?? "?"
             out.append(DeviceEntry(id: file.pointee.item_id, name: name,

@@ -60,6 +60,8 @@ struct PhonePlace: Identifiable {
     let name: String
     let symbol: String
     let location: Location
+    /// Our own camera app's folder, drawn with its brand mark at the top of the list.
+    var isPrimeCam = false
     var id: Location { location }
 }
 
@@ -112,6 +114,8 @@ final class AppModel {
     func startWatching() {
         guard !watching else { return }
         watching = true
+        // `-DemoOnly YES` opens the Demo Phone and never touches USB, for screenshots and QA.
+        if UserDefaults.standard.bool(forKey: "DemoOnly") { connectDemo(); return }
         Task { [weak self] in
             while let self {
                 await self.poll()
@@ -149,7 +153,7 @@ final class AppModel {
         await loadStorages()
     }
 
-    private func loadStorages() async {
+    private func loadStorages(force: Bool = false) async {
         guard let d = device else { return }
         let r = await Task.detached { Result { try d.storages() } }.value
         guard device === d else { return }
@@ -158,10 +162,8 @@ final class AppModel {
             let changed = s.map(\.id) != storages.map(\.id)
             storages = s
             hint = nil
-            if changed {
-                await loadPlaces()
-                deviceGeneration += 1
-            }
+            if changed || force { await loadPlaces() }
+            if changed { deviceGeneration += 1 }
         case .failure(let e):
             hint = message(e)
             if !storages.isEmpty { storages = []; phonePlaces = []; deviceGeneration += 1 }
@@ -175,13 +177,24 @@ final class AppModel {
             list.first { $0.isFolder && $0.name.caseInsensitiveCompare(name) == .orderedSame }
         }
         func crumb(_ e: DeviceEntry) -> Crumb { Crumb(id: e.id, name: e.name) }
+        /// Phones can answer a listing with nothing while busy right after connecting, so try a few times.
+        func children(_ e: DeviceEntry) async -> [DeviceEntry] {
+            for attempt in 0..<3 {
+                if attempt > 0 { try? await Task.sleep(for: .milliseconds(400)) }
+                if case .success(let kids) = await listPhone(storage: s.id, folder: e.id), !kids.isEmpty { return kids }
+            }
+            return []
+        }
         var places: [PhonePlace] = []
         if let dcim = folder("DCIM", in: root) {
-            if case .success(let kids) = await listPhone(storage: s.id, folder: dcim.id), let cam = folder("Camera", in: kids) {
+            if let cam = folder("Camera", in: await children(dcim)) {
                 places.append(PhonePlace(name: "Camera", symbol: "camera", location: .phone(storage: s.id, path: [crumb(dcim), crumb(cam)])))
             } else {
                 places.append(PhonePlace(name: "DCIM", symbol: "camera", location: .phone(storage: s.id, path: [crumb(dcim)])))
             }
+        }
+        if let movies = folder("Movies", in: root), let prime = folder("PrimeCam", in: await children(movies)) {
+            places.insert(PhonePlace(name: "PrimeCam", symbol: "viewfinder", location: .phone(storage: s.id, path: [crumb(movies), crumb(prime)]), isPrimeCam: true), at: 0)
         }
         for (name, label, symbol) in [("Download", "Downloads", "arrow.down.circle"), ("Pictures", "Pictures", "photo"),
                                       ("Movies", "Movies", "film"), ("Documents", "Documents", "doc")] {
@@ -190,7 +203,8 @@ final class AppModel {
         phonePlaces = places
     }
 
-    func refreshStorages() { Task { await loadStorages() } }
+    /// Refresh (⌘R) also looks for the sidebar shortcuts again, e.g. a PrimeCam folder made after connecting.
+    func refreshStorages() { Task { await loadStorages(force: true) } }
     func connectDemo() { Task { await attach(DemoDevice()) } }
     func reconnect() { ejectedName = nil }
 

@@ -24,7 +24,9 @@ public final class DemoDevice: MTPDevice, @unchecked Sendable {
         _ = add("notes: draft.txt", folder: false, parent: dl, size: 1_200)
         _ = add("Pictures", folder: true, parent: 0)
         _ = add(".thumbnails", folder: true, parent: 0)
-        _ = add("Movies", folder: true, parent: 0)
+        let movies = add("Movies", folder: true, parent: 0)
+        let prime = add("PrimeCam", folder: true, parent: movies)
+        _ = add("PrimeCam_20261030_1421.mp4", folder: false, parent: prime, size: 220_000_000)
     }
 
     public func storages() throws -> [StorageInfo] {
