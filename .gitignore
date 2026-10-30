@@ -1,0 +1,11 @@
+.build/
+build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+.DS_Store
+*.dmg
+*.p12
+*.cer
+*.provisionprofile
+.env
+.env.*

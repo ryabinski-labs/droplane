@@ -1,0 +1,10 @@
+# Maintainers are listed in MAINTAINERS.md.
+# CODEOWNERS documents ownership. Do not enable a blanket required-review gate unless this project explicitly chooses it.
+
+* @cigan1
+
+# Document focused ownership for high-risk areas.
+/.github/workflows/ @cigan1
+/SECURITY.md @cigan1
+/GOVERNANCE.md @cigan1
+/MAINTAINERS.md @cigan1

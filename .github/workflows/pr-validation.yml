@@ -1,0 +1,54 @@
+name: PR Validation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The app has no third-party Swift packages (Package.swift has no dependencies), so there is no
+# lockfile to pin. libmtp comes from Homebrew and is bundled into the app by scripts/make-app.sh.
+jobs:
+  quality:
+    name: Quality checks
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install libmtp
+        run: brew install libmtp
+
+      - name: Build
+        run: swift build
+
+      - name: Test
+        run: swift test
+
+      - name: Package the app (smoke test)
+        run: ./scripts/make-app.sh
+
+      - name: Check the app bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP=build/Droplane.app
+          codesign --verify --deep --strict "$APP"
+          # Must run without Homebrew: no load command may point outside the bundle or system.
+          if otool -L "$APP/Contents/MacOS/Droplane" "$APP"/Contents/Frameworks/*.dylib | grep -q /opt/homebrew; then
+            echo "::error::app still links against Homebrew libraries"
+            exit 1
+          fi
+          test -f "$APP/Contents/Resources/LICENSE"
+          test -f "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
+          test -f "$APP/Contents/Resources/LICENSES/LGPL-2.1-libmtp.txt"

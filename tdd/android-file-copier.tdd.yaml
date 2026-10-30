@@ -1,0 +1,412 @@
+schema: tdd-artifact/v1
+feature: android-file-copier
+title: Android to Mac File Copier
+source:
+  prd: docs/prd/android-file-copier.md
+  prd_sha256: 9ee718ab345e0d66f1d890819678705043810801f24bc961673587453297036b
+defaults:
+  priority: P2
+non_goals:
+  - Wireless transfer (Wi-Fi or companion Android app)
+  - adb or USB debugging
+  - Windows, Linux, iOS, and Mac App Store distribution
+  - Syncing, backup schedules, photo library import, PrimeCam-specific metadata or previews
+  - Multiple phones connected at the same time
+  - Any telemetry, accounts, or cloud service
+open_questions: []
+requirements:
+  - id: REQ-001
+    text: Plugging in an unlocked phone in File transfer mode lists its storages and top-level folders within 5 seconds.
+    priority: P0
+    type: functional
+    prd_ref: '§5 story 1'
+    scenarios:
+      - id: SC-001-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_001_a
+        level: unit
+        title: Fake device connect lists storages
+        given: a FakeMTPDevice with 2 storages and 3 root folders
+        when: DeviceMonitor reports it attached
+        then: the phone pane model lists 2 storages and 3 folders
+        oracle: 'pane.storages.count == 2 AND pane.rootFolders.count == 3'
+        doubles: real DeviceMonitor, fake device
+        status: red
+        tags: [devices]
+      - id: SC-001-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_001_b
+        level: contract
+        title: libmtp wrapper conforms to MTPDevice protocol on real hardware
+        given: the maintainer's physical phone is unlocked in File transfer mode
+        when: the real LibMTPDevice connects
+        then: storages and root folders are listed within 5 seconds
+        oracle: 'elapsed_ms(connect..listRoot) <= 5000 AND storages.count >= 1'
+        doubles: real libmtp, real phone (manual, DL-009)
+        status: red
+        tags: [hardware, nfr]
+      - id: SC-001-c
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_001_c
+        level: unit
+        title: Locked or charge-only phone shows unlock guidance
+        given: a device whose open call fails with no-device-in-MTP-mode
+        when: DeviceMonitor handles the failure
+        then: state is .needsUnlock with the exact guidance text and a Refresh action
+        oracle: "state == .needsUnlock AND message == 'Unlock your phone and choose File transfer (MTP) in the USB notification'"
+        doubles: fake device error
+        status: red
+        negative: true
+        tags: [errors]
+      - id: SC-001-d
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_001_d
+        level: unit
+        title: Busy interface shows quit-other-apps guidance
+        given: a device whose open call fails with the interface-claimed error
+        when: DeviceMonitor handles the failure
+        then: state is .busy with the exact text
+        oracle: "message == 'Another app is using your phone. Quit Android File Transfer, Samsung Smart Switch, or any other phone manager, then press Refresh'"
+        doubles: fake device error
+        status: red
+        negative: true
+        tags: [errors]
+  - id: REQ-002
+    text: Files and folders copy Android to Mac byte-identical, including files over 4 GB and whole subtrees, with percent and MB/s shown.
+    priority: P0
+    type: functional
+    prd_ref: '§5 story 2'
+    scenarios:
+      - id: SC-002-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_002_a
+        level: integration
+        title: Single file copies byte-identical
+        given: a fake phone file of 10 MiB random bytes and an empty Mac temp folder
+        when: the queue copies it to the Mac
+        then: the queue row is Done and the Mac file has the same SHA-256
+        oracle: 'sha256(mac_file) == sha256(source_bytes) AND row.state == .done'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+      - id: SC-002-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_002_b
+        level: integration
+        title: File over 4 GiB streams without 32-bit truncation
+        given: a fake phone file of 4 GiB + 1 byte produced by a deterministic generator
+        when: the queue copies it to the Mac
+        then: the Mac file size is 4294967297 and the SHA-256 matches the generator's digest
+        oracle: 'mac_file.size == 4294967297 AND sha256 matches'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003), sparse temp volume
+        status: red
+        tags: [large]
+      - id: SC-002-c
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_002_c
+        level: integration
+        title: Folder subtree is preserved
+        given: a fake phone folder with 3 nested levels and 7 files
+        when: the folder is copied to a Mac folder
+        then: the Mac tree has identical relative paths and file hashes
+        oracle: 'relativePaths(mac) == relativePaths(phone) AND hashes equal'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+      - id: SC-002-d
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_002_d
+        level: unit
+        title: Progress reports percent and MB/s
+        given: a transfer of 100 MB where 25 MB moved in 1 second
+        when: the progress model updates
+        then: row shows 25 percent and 25.0 MB/s
+        oracle: 'row.percent == 25 AND row.mbPerSecond == 25.0'
+        doubles: none, pure model
+        status: red
+      - id: SC-002-e
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_002_e
+        level: unit
+        title: Insufficient Mac space blocks the copy
+        given: a queue needing 5 GB and a Mac volume reporting 2 GB free
+        when: the user starts the copy
+        then: nothing is transferred and the message names both sizes
+        oracle: "bytesTransferred == 0 AND message == 'Not enough space on the Mac: needs 5.0 GB, has 2.0 GB'"
+        doubles: free-space provider stubbed
+        status: red
+        negative: true
+        tags: [errors]
+  - id: REQ-003
+    text: A name clash never overwrites before the user chooses Replace, Keep Both, or Skip, with Apply to All.
+    priority: P0
+    type: functional
+    prd_ref: '§5 story 3'
+    scenarios:
+      - id: SC-003-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_003_a
+        level: unit
+        title: Keep Both names the copy 'name 2.ext'
+        given: a destination already containing clip.mp4
+        when: ConflictResolver resolves clip.mp4 with Keep Both
+        then: the new name is 'clip 2.mp4' and a second clash yields 'clip 3.mp4'
+        oracle: "names == ['clip 2.mp4','clip 3.mp4']"
+        doubles: none, pure function
+        status: red
+      - id: SC-003-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_003_b
+        level: integration
+        title: Existing file untouched until the user decides
+        given: a Mac file clip.mp4 with known hash H and a phone file clip.mp4 with different bytes
+        when: the queue reaches the clash
+        then: the queue pauses with a pending decision and the Mac file hash is still H
+        oracle: 'queue.state == .awaitingDecision AND sha256(mac_clip) == H'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+        negative: true
+      - id: SC-003-c
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_003_c
+        level: integration
+        title: Skip with Apply to All skips every later clash
+        given: 3 clashing files and the user picks Skip with Apply to All on the first
+        when: the queue finishes
+        then: all 3 are skipped, no prompt appears twice, Mac hashes are unchanged
+        oracle: 'prompts == 1 AND skipped == 3 AND hashes unchanged'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+  - id: REQ-004
+    text: Cancel stops a transfer within 2 seconds and a cancelled or disconnected transfer never leaves a partial destination file.
+    priority: P0
+    type: functional
+    prd_ref: '§5 story 4; A-010'
+    scenarios:
+      - id: SC-004-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_004_a
+        level: integration
+        title: Cancel deletes the partial Mac file
+        given: a running 1 GiB copy at 40 percent
+        when: the user cancels the queue row
+        then: the transfer stops within 2 seconds and no partial file remains
+        oracle: 'elapsed_ms <= 2000 AND NOT exists(mac_partial)'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+      - id: SC-004-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_004_b
+        level: integration
+        title: Unplug mid-copy fails every unfinished row
+        given: a queue of 3 files with the first at 50 percent
+        when: the fake device reports disconnected
+        then: unfinished rows read Failed with 'Phone disconnected', no partial files remain, Retry is offered
+        oracle: "all unfinished rows == .failed('Phone disconnected') AND no partial files AND row.canRetry"
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+        negative: true
+        tags: [errors]
+      - id: SC-004-c
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_004_c
+        level: integration
+        title: Retry re-queues failed rows after reconnect
+        given: failed rows from SC-004-b and the device reattached
+        when: the user presses Retry
+        then: rows complete with matching hashes
+        oracle: 'rows == .done AND hashes equal'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+  - id: REQ-005
+    text: The release is a universal macOS 14+ DMG signed with Developer ID, notarized and stapled, that installs with no Gatekeeper warning.
+    priority: P0
+    type: functional
+    prd_ref: '§5 story 5; DL-004'
+    scenarios:
+      - id: SC-005-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_005_a
+        level: acceptance
+        title: Release DMG passes Gatekeeper assessment
+        given: a DMG built by the release script on a Mac with the Developer ID cert (R-001)
+        when: scripts/release.sh --verify runs spctl and stapler
+        then: the app is accepted as Notarized Developer ID and the DMG is stapled
+        oracle: "spctl --assess --type execute exits 0 with 'source=Notarized Developer ID' AND stapler validate exits 0"
+        doubles: real Apple notary service (manual, blocked on R-001)
+        status: red
+        tags: [release]
+      - id: SC-005-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_005_b
+        level: integration
+        title: Binary is universal with minimum macOS 14
+        given: the built app bundle
+        when: lipo and plutil inspect it
+        then: arm64 and x86_64 slices exist and LSMinimumSystemVersion is 14.0
+        oracle: "lipo -archs includes 'arm64' and 'x86_64' AND LSMinimumSystemVersion == '14.0'"
+        doubles: real build artifact
+        status: red
+        tags: [release]
+      - id: SC-005-c
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_005_c
+        level: integration
+        title: Hardened runtime and libmtp bundled dynamically
+        given: the built app bundle
+        when: codesign -dv and otool -L inspect it
+        then: hardened runtime flag is set and libmtp is a dylib inside Frameworks
+        oracle: "codesign flags contains 'runtime' AND otool -L lists @rpath/libmtp dylib"
+        doubles: real build artifact
+        status: red
+        tags: [release, compliance]
+  - id: REQ-006
+    text: A maintainer can exercise every P0 story locally through a Demo Device with no phone and no git remote.
+    priority: P0
+    type: functional
+    prd_ref: '§5 story 6; A-005'
+    scenarios:
+      - id: SC-006-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_006_a
+        level: acceptance
+        title: Demo Device appears and lists sample files
+        given: the app launched with the Device menu Demo Device item enabled
+        when: the user selects Demo Device
+        then: the phone pane lists the sample folders and files
+        oracle: 'XCUITest: phone pane row count == sampleTree.rootCount'
+        doubles: real app, in-memory DemoDevice
+        status: red
+        tags: [demo]
+      - id: SC-006-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_006_b
+        level: integration
+        title: No remote and no push in scripts
+        given: the repository at the first commit
+        when: scripts and git config are scanned
+        then: no remote exists and no script contains 'git push'
+        oracle: "git remote | wc -l == 0 AND grep -r 'git push' scripts == empty"
+        doubles: real repo
+        status: red
+        negative: true
+        tags: [process]
+  - id: REQ-007
+    text: Files copy Mac to phone with the same progress, conflict and cancel behavior, and a full phone fails with a clear message.
+    priority: P1
+    type: functional
+    prd_ref: '§5 story 7'
+    scenarios:
+      - id: SC-007-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_007_a
+        level: integration
+        title: Mac file lands on phone with equal size and hash
+        given: a 10 MiB Mac file and a fake phone folder
+        when: the queue copies it to the phone
+        then: the fake device holds the same bytes
+        oracle: 'fake.read(path) sha256 == sha256(mac_file)'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+      - id: SC-007-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_007_b
+        level: integration
+        title: Full phone fails with exact message
+        given: a fake storage with 1 MB free and a 10 MB Mac file
+        when: the queue copies it
+        then: the row is Failed with the exact text and no partial object remains
+        oracle: "row.state == .failed('Not enough space on the phone') AND NOT fake.exists(path)"
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+        negative: true
+        tags: [errors]
+  - id: REQ-008
+    text: Rename, delete and new folder work on the phone, and delete never happens without confirmation.
+    priority: P1
+    type: functional
+    prd_ref: '§5 story 8; A-003'
+    scenarios:
+      - id: SC-008-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_008_a
+        level: integration
+        title: Rename changes the name on the device
+        given: a fake phone file a.txt
+        when: rename to b.txt
+        then: the device lists b.txt and not a.txt
+        oracle: "fake.list contains 'b.txt' AND NOT contains 'a.txt'"
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+      - id: SC-008-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_008_b
+        level: unit
+        title: Delete requires confirmation
+        given: 2 selected phone items
+        when: delete is requested and confirmation is cancelled
+        then: nothing is deleted and the prompt text matches
+        oracle: "fake.deleteCalls == 0 AND prompt == 'Delete 2 items from your phone? This cannot be undone'"
+        doubles: confirmation provider stubbed
+        status: red
+        negative: true
+      - id: SC-008-c
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_008_c
+        level: integration
+        title: New folder creates a folder
+        given: a fake phone folder open
+        when: new folder 'Clips' is created
+        then: the folder exists on the device
+        oracle: "fake.exists('/DCIM/Clips') == true"
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+  - id: REQ-009
+    text: View mode and hidden-file toggle persist per pane, and dot-files are hidden by default.
+    priority: P1
+    type: functional
+    prd_ref: '§5 story 9'
+    scenarios:
+      - id: SC-009-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_009_a
+        level: unit
+        title: Dot-files hidden by default
+        given: a listing containing '.thumbnails' and 'a.mp4'
+        when: the default pane filter applies
+        then: only a.mp4 is shown
+        oracle: "visible == ['a.mp4']"
+        doubles: none, pure function
+        status: red
+      - id: SC-009-b
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_009_b
+        level: unit
+        title: View mode persists across relaunch
+        given: left pane set to icon view in an isolated UserDefaults suite
+        when: a new PreferencesStore reads the suite
+        then: left pane is icon view
+        oracle: 'store.viewMode(.left) == .icon'
+        doubles: isolated UserDefaults suite
+        status: red
+  - id: REQ-010
+    text: The app updates through Sparkle from a signed appcast.
+    priority: P1
+    type: functional
+    prd_ref: '§5 story 10; DL-007'
+    scenarios:
+      - id: SC-010-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_010_a
+        level: contract
+        title: Appcast entry carries a valid EdDSA signature
+        given: a generated appcast for version 0.1.1
+        when: sign_update verification runs against the public key in Info.plist
+        then: verification succeeds
+        oracle: 'sparkle verify exits 0'
+        doubles: real Sparkle tools
+        status: red
+        tags: [release]
+  - id: REQ-011
+    text: Unsafe characters in phone file names are replaced with an underscore on the Mac and the change is shown.
+    priority: P2
+    type: functional
+    prd_ref: '§14 A-011'
+    scenarios:
+      - id: SC-011-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_011_a
+        level: unit
+        title: Colon is sanitized
+        given: a phone file named 'a:b.mp4'
+        when: the Mac destination name is derived
+        then: the name is 'a_b.mp4' and the row notes the change
+        oracle: "name == 'a_b.mp4' AND row.note != nil"
+        doubles: none, pure function
+        status: red
+  - id: REQ-012
+    text: Cold launch shows a window in at most 2 seconds and listing 1,000 entries takes at most 2 seconds.
+    priority: P2
+    type: non-functional
+    prd_ref: '§13'
+    scenarios:
+      - id: SC-012-a
+        test_ref: Tests/TransferCoreTests/ScenarioTests.swift::test_SC_012_a
+        level: integration
+        title: Listing 1,000 entries meets 2 s
+        given: a fake folder with 1000 entries
+        when: the pane lists it
+        then: rows render in at most 2 seconds
+        oracle: 'elapsed_ms <= 2000'
+        doubles: real TransferEngine, FakeMTPDevice replaces libmtp (DL-003)
+        status: red
+        tags: [nfr]
