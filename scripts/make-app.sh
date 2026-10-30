@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 swift build -c release
-APP=build/Droplane.app
+APP="${APP_PATH:-build/Droplane.app}"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/Droplane "$APP/Contents/MacOS/"
 cat > "$APP/Contents/Info.plist" <<PL
