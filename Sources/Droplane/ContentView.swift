@@ -153,7 +153,12 @@ struct Sidebar: View {
                     Label("Locked", systemImage: "lock").foregroundStyle(.secondary)
                 }
                 ForEach(model.storages) { s in
-                    Label(s.name, systemImage: s.name.localizedCaseInsensitiveContains("sd") ? "sdcard" : "internaldrive")
+                    HStack {
+                        Label(s.name, systemImage: s.name.localizedCaseInsensitiveContains("sd") ? "sdcard" : "internaldrive")
+                        Spacer(minLength: 4)
+                        // Like Finder's eject next to a mounted disk; one button for the whole phone.
+                        if s.id == model.storages.first?.id { EjectButton() }
+                    }
                         .tag(Location.phone(storage: s.id, path: []))
                         .onDrop(of: [.fileURL], isTargeted: nil) { upload($0, storage: s.id, folder: 0, name: s.name) }
                 }
@@ -168,22 +173,7 @@ struct Sidebar: View {
                         }
                 }
             } header: {
-                HStack {
-                    Text(model.device?.displayName ?? "Phone")
-                    Spacer()
-                    if model.device != nil {
-                        Button { model.eject() } label: {
-                            Image(systemName: "eject")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 18, height: 18)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                            .help("Disconnect the phone")
-                            .accessibilityLabel("Disconnect \(model.device?.displayName ?? "phone")")
-                    }
-                }
+                Text(model.device?.displayName ?? "Phone")
             }
             Section("Mac") {
                 ForEach(MacPlaces.all) { place in
@@ -223,6 +213,24 @@ extension NSItemProvider {
                 c.resume(returning: data.flatMap { try? JSONDecoder().decode(PhoneRef.self, from: $0) })
             }
         }
+    }
+}
+
+/// Disconnects the phone, drawn like Finder's sidebar eject button.
+struct EjectButton: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        Button { model.eject() } label: {
+            Image(systemName: "eject")
+                .font(.system(size: 11, weight: .semibold))
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(.secondary)
+        .help("Disconnect the phone")
+        .accessibilityLabel("Disconnect \(model.device?.displayName ?? "phone")")
     }
 }
 
