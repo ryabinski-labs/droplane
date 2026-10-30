@@ -112,6 +112,8 @@ final class AppModel {
     func startWatching() {
         guard !watching else { return }
         watching = true
+        // `-DemoOnly YES` opens the Demo Phone and never touches USB, for screenshots and QA.
+        if UserDefaults.standard.bool(forKey: "DemoOnly") { connectDemo(); return }
         Task { [weak self] in
             while let self {
                 await self.poll()
