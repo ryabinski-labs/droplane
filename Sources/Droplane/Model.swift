@@ -183,6 +183,10 @@ final class AppModel {
                 places.append(PhonePlace(name: "DCIM", symbol: "camera", location: .phone(storage: s.id, path: [crumb(dcim)])))
             }
         }
+        if let movies = folder("Movies", in: root),
+           case .success(let kids) = await listPhone(storage: s.id, folder: movies.id), let prime = folder("PrimeCam", in: kids) {
+            places.append(PhonePlace(name: "PrimeCam", symbol: "video", location: .phone(storage: s.id, path: [crumb(movies), crumb(prime)])))
+        }
         for (name, label, symbol) in [("Download", "Downloads", "arrow.down.circle"), ("Pictures", "Pictures", "photo"),
                                       ("Movies", "Movies", "film"), ("Documents", "Documents", "doc")] {
             if let f = folder(name, in: root) { places.append(PhonePlace(name: label, symbol: symbol, location: .phone(storage: s.id, path: [crumb(f)]))) }
