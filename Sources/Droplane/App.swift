@@ -46,7 +46,7 @@ struct BrowserCommands: Commands {
         CommandGroup(after: .toolbar) {
             Button(model.showHidden ? "Hide Hidden Files" : "Show Hidden Files") { model.showHidden.toggle() }
                 .keyboardShortcut(".", modifiers: [.command, .shift])
-            Button("Refresh") { browser?.reload(model) }
+            Button("Refresh") { browser?.reload(model); model.refreshStorages() }
                 .keyboardShortcut("r")
         }
         CommandMenu("Go") {
