@@ -3,6 +3,7 @@ import TransferCore
 
 @main
 struct DroplaneApp: App {
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var model = AppModel()
 
     var body: some Scene {
@@ -18,6 +19,17 @@ struct DroplaneApp: App {
             TransfersView().environment(model)
         }
         .defaultSize(width: 520, height: 320)
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    /// SwiftUI doesn't reopen a closed browser window from the Dock, so open one through File > New Window.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        guard !flag, let file = sender.mainMenu?.items.first(where: { $0.submenu?.title == "File" })?.submenu,
+              let index = file.items.firstIndex(where: { $0.keyEquivalent == "n" && $0.keyEquivalentModifierMask == .command })
+        else { return true }
+        file.performActionForItem(at: index)
+        return false
     }
 }
 
