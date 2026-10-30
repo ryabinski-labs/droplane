@@ -158,7 +158,9 @@ struct Sidebar: View {
                         .onDrop(of: [.fileURL], isTargeted: nil) { upload($0, storage: s.id, folder: 0, name: s.name) }
                 }
                 ForEach(model.phonePlaces) { place in
-                    Label(place.name, systemImage: place.symbol)
+                    Group {
+                        if place.isPrimeCam { PrimeCamLabel() } else { Label(place.name, systemImage: place.symbol) }
+                    }
                         .tag(place.location)
                         .onDrop(of: [.fileURL], isTargeted: nil) { providers in
                             guard case .phone(let s, let path) = place.location, let folder = path.last else { return false }
@@ -219,6 +221,22 @@ extension NSItemProvider {
         await withCheckedContinuation { c in
             loadDataRepresentation(forTypeIdentifier: UTType.droplanePhone.identifier) { data, _ in
                 c.resume(returning: data.flatMap { try? JSONDecoder().decode(PhoneRef.self, from: $0) })
+            }
+        }
+    }
+}
+
+/// PrimeCam's mark: a white viewfinder gate with its red record dot.
+struct PrimeCamLabel: View {
+    static let red = Color(red: 0xE5 / 255, green: 0x23 / 255, blue: 0x3D / 255)
+
+    var body: some View {
+        Label {
+            Text("PrimeCam").fontWeight(.semibold)
+        } icon: {
+            ZStack {
+                Image(systemName: "viewfinder").foregroundStyle(Color.primary)
+                Circle().fill(Self.red).frame(width: 5, height: 5)
             }
         }
     }

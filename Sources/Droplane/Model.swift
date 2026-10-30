@@ -60,6 +60,8 @@ struct PhonePlace: Identifiable {
     let name: String
     let symbol: String
     let location: Location
+    /// Our own camera app's folder, drawn with its brand mark at the top of the list.
+    var isPrimeCam = false
     var id: Location { location }
 }
 
@@ -187,7 +189,7 @@ final class AppModel {
         }
         if let movies = folder("Movies", in: root),
            case .success(let kids) = await listPhone(storage: s.id, folder: movies.id), let prime = folder("PrimeCam", in: kids) {
-            places.append(PhonePlace(name: "PrimeCam", symbol: "video", location: .phone(storage: s.id, path: [crumb(movies), crumb(prime)])))
+            places.insert(PhonePlace(name: "PrimeCam", symbol: "viewfinder", location: .phone(storage: s.id, path: [crumb(movies), crumb(prime)]), isPrimeCam: true), at: 0)
         }
         for (name, label, symbol) in [("Download", "Downloads", "arrow.down.circle"), ("Pictures", "Pictures", "photo"),
                                       ("Movies", "Movies", "film"), ("Documents", "Documents", "doc")] {
