@@ -62,7 +62,7 @@ Expected result: the Droplane window opens. Plug in your phone, unlock it, and c
 
 The local build is ad-hoc signed, so macOS may ask you to confirm the first launch. Signed and notarized releases are planned (see [Project status](#project-status)).
 
-## Usage
+## Quickstart
 
 1. Connect the phone and unlock it.
 2. Pick Camera (or any folder) in the sidebar.
@@ -72,6 +72,13 @@ The local build is ad-hoc signed, so macOS may ask you to confirm the first laun
 No phone at hand? Open the app with nothing plugged in and click **Try the Demo Phone**.
 
 If the phone does not show up, see [SUPPORT.md](SUPPORT.md).
+
+## Usage
+
+- Copy with ⌘C and ⌘V, or drag between a phone folder and Finder.
+- Show hidden files with ⇧⌘. and refresh with ⌘R.
+- Go back and forward with ⌘[ and ⌘], and up one folder with ⌘↑.
+- Right-click a phone item for Copy to…, Rename, and Delete.
 
 ## Privacy
 
