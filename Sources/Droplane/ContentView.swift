@@ -226,19 +226,10 @@ extension NSItemProvider {
     }
 }
 
-/// PrimeCam's mark: a white viewfinder gate with its red record dot.
+/// Our own camera app's folder: the standard video icon with a bolder label so it stands out.
 struct PrimeCamLabel: View {
-    static let red = Color(red: 0xE5 / 255, green: 0x23 / 255, blue: 0x3D / 255)
-
     var body: some View {
-        Label {
-            Text("PrimeCam").fontWeight(.semibold)
-        } icon: {
-            ZStack {
-                Image(systemName: "viewfinder").foregroundStyle(Color.primary)
-                Circle().fill(Self.red).frame(width: 5, height: 5)
-            }
-        }
+        Label { Text("PrimeCam").fontWeight(.semibold) } icon: { Image(systemName: "video") }
     }
 }
 
