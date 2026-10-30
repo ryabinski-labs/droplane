@@ -52,7 +52,8 @@ jobs:
 
       - name: Build Swift
         if: matrix.language == 'swift'
-        run: swift build
+        # CodeQL traces as x86_64 and cannot link the arm64 Homebrew libmtp, so compile without linking.
+        run: swift build --target Droplane
 
       - name: Analyze
         uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
