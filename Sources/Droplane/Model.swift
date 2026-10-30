@@ -194,7 +194,7 @@ final class AppModel {
             }
         }
         if let movies = folder("Movies", in: root), let prime = folder("PrimeCam", in: await children(movies)) {
-            places.insert(PhonePlace(name: "PrimeCam", symbol: "video", location: .phone(storage: s.id, path: [crumb(movies), crumb(prime)]), isPrimeCam: true), at: 0)
+            places.insert(PhonePlace(name: "PrimeCam", symbol: "viewfinder", location: .phone(storage: s.id, path: [crumb(movies), crumb(prime)]), isPrimeCam: true), at: 0)
         }
         for (name, label, symbol) in [("Download", "Downloads", "arrow.down.circle"), ("Pictures", "Pictures", "photo"),
                                       ("Movies", "Movies", "film"), ("Documents", "Documents", "doc")] {
