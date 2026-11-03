@@ -23,6 +23,16 @@ swift test
 
 You can develop without a phone: with nothing plugged in, choose **Try the Demo Phone**.
 
+## App icon
+
+The source is `Resources/AppIcon.svg`; the built `Resources/AppIcon.icns` is committed, so a normal build needs no extra tools. To change the icon, edit the SVG and regenerate the `.icns`:
+
+```sh
+brew install librsvg
+./scripts/make-icon.sh
+./scripts/make-app.sh
+```
+
 ## Making a change
 
 1. Create a branch from `main`. Changes reach `main` only through a pull request.
