@@ -18,7 +18,7 @@ Droplane is a free, open-source Mac app that copies files between an Android pho
 | Who is it for? | Anyone who needs to move photos, videos, or documents between an Android phone and a Mac. |
 | What problem does it solve? | Macs can't open an Android phone's storage on their own, and the usual workarounds are dated or need developer tools. |
 | What is the outcome? | The phone's folders appear in a Finder-style window, and dragging files moves them, with progress and a Retry button if a copy fails. |
-| Project status | Pre-release. The release pipeline now builds a Developer ID signed, notarized, stapled DMG; the first notarized release needs a Developer ID Application certificate created by the Account Holder. Until then, downloads are ad-hoc signed and macOS asks you to approve the first launch (steps below). |
+| Project status | Stable. The latest release is Developer ID signed, notarized, and stapled; open the DMG and drag Droplane to Applications. |
 | License | MIT (see [LICENSE](LICENSE)). Bundled libmtp and libusb are LGPL-2.1-or-later (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). |
 
 ![Droplane copying a video from the Demo Phone's PrimeCam folder, with the Finder-style sidebar and a progress bar](docs/images/droplane.png)
@@ -73,23 +73,21 @@ Facts about other apps come from their own websites and may change; check them b
 
 You need an Apple Silicon Mac (M1 or later) on macOS 14 or newer. The download is built for Apple Silicon only; on an Intel Mac, [build from source](#build-from-source).
 
-1. Open the [latest release](https://github.com/ryabinski-labs/droplane/releases/latest) and download `Droplane-<version>-arm64.zip` from Assets.
-2. Double-click the zip to unzip it, then drag **Droplane** into your **Applications** folder.
-3. Open Droplane. macOS will say it can't verify the app, because this pre-release is not notarized yet. Approve it once:
-   - **macOS 15 (Sequoia) or later:** click **Done**, open **System Settings > Privacy & Security**, scroll to **Security**, click **Open Anyway** next to "Droplane", then confirm with your password or Touch ID.
-   - **macOS 14 (Sonoma):** Control-click Droplane in Applications, choose **Open**, then click **Open**.
+1. Open the [latest release](https://github.com/ryabinski-labs/droplane/releases/latest) and download `Droplane-<version>-arm64.dmg` from Assets.
+2. Open the DMG, then drag **Droplane** into your **Applications** folder.
+3. Open Droplane. It is signed with a Developer ID and notarized, so it launches without the "unidentified developer" warning.
 4. Plug in your phone, unlock it, and choose **File transfer** in the USB notification. The phone appears in the sidebar within a few seconds.
 
-Once the first notarized release is published, the download will be a DMG. Open it, drag **Droplane** to **Applications**, and skip the Open Anyway steps above.
-
-Only approve apps you trust. To check that the download is the file this repository built, compare its checksum with `SHA256SUMS.txt` from the same release:
+To check that the download is the file this repository built:
 
 ```sh
+spctl -a -vvv -t open --context context:primary-signature Droplane-<version>-arm64.dmg
+stapler validate Droplane-<version>-arm64.dmg
 shasum -a 256 -c SHA256SUMS.txt --ignore-missing
-gh attestation verify Droplane-<version>-arm64.zip --repo ryabinski-labs/droplane
+gh attestation verify Droplane-<version>-arm64.dmg --repo ryabinski-labs/droplane
 ```
 
-The release workflow is ready to produce signed, notarized DMGs; the first one is blocked on the Developer ID Application certificate. See [docs/releasing.md](docs/releasing.md). A Homebrew cask follows after the first notarized release.
+The download is Apple Silicon only. A Homebrew cask follows.
 
 ### Build from source
 
@@ -103,14 +101,14 @@ cd droplane
 open build/Droplane.app
 ```
 
-Expected result: the Droplane window opens. A local build is ad-hoc signed, so macOS may ask you to approve the first launch the same way.
+Expected result: the Droplane window opens. A local build is ad-hoc signed, so macOS may ask you to approve the first launch.
 
 ## Quickstart
 
 1. Connect the phone and unlock it.
 2. Pick Camera (or any folder) in the sidebar.
 3. Drag photos to a Finder window or the Desktop, or select them and press **Copy to Downloads**.
-4. Watch progress on the toolbar's Transfers button, or open the Transfers window.
+4. Watch the bottom progress bar, the toolbar's Transfers button, or the Transfers window.
 
 No phone at hand? Open the app with nothing plugged in and click **Try the Demo Phone**.
 
@@ -129,10 +127,9 @@ Droplane has no telemetry, analytics, or accounts, and it makes no network conne
 
 ## Project status
 
-Pre-release. The release workflow now builds a Developer ID signed, notarized, stapled DMG. The remaining work before the first notarized release:
+Stable. The latest release is Developer ID signed, notarized, and stapled. Remaining work:
 
-- Create the Developer ID Application certificate as the Apple Developer Account Holder; the release workflow is ready (see [docs/releasing.md](docs/releasing.md)).
-- A Homebrew cask, once releases are notarized.
+- A Homebrew cask.
 - Intel (universal) builds.
 - A signed update channel.
 - Thumbnails and an icon view.
