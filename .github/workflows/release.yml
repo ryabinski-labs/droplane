@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   release:
-    name: Build, attest, and publish
+    name: Build, sign, notarize, and publish
     runs-on: macos-latest
     permissions:
       contents: write # create the release and upload assets
@@ -28,20 +28,86 @@ jobs:
       - name: Install libmtp
         run: brew install libmtp
 
-      # Ad-hoc signed until a Developer ID certificate exists, so the release is marked pre-release.
-      - name: Build the app and zip it
+      # Secrets: DEVELOPER_ID_P12 is a base64-encoded .p12 containing the
+      # Developer ID Application certificate and its private key.
+      - name: Import Developer ID certificate
         env:
-          TAG: ${{ github.ref_name }}
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
         run: |
           set -euo pipefail
-          ./scripts/make-app.sh
-          codesign --verify --deep --strict build/Droplane.app
-          if otool -L build/Droplane.app/Contents/MacOS/Droplane build/Droplane.app/Contents/Frameworks/*.dylib | grep -q /opt/homebrew; then
-            echo "app links against Homebrew paths" >&2; exit 1
+          if [ -z "${DEVELOPER_ID_P12:-}" ] || [ -z "${DEVELOPER_ID_P12_PASSWORD:-}" ]; then
+            echo "::error::DEVELOPER_ID_P12 and DEVELOPER_ID_P12_PASSWORD must be set; see docs/releasing.md"
+            exit 1
           fi
-          mkdir -p dist
-          ditto -c -k --keepParent build/Droplane.app "dist/Droplane-${TAG}-arm64.zip"
-          git archive --format=tar.gz --prefix="droplane-${TAG}/" -o "dist/droplane-${TAG}-source.tar.gz" "$TAG"
+          KEYCHAIN="$RUNNER_TEMP/droplane-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" \
+            -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" /Library/Keychains/System.keychain
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | sed -n 's/.*"\(Developer ID Application:.*\)"/\1/p' | head -1)"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::No Developer ID Application identity in the imported p12"
+            exit 1
+          fi
+          {
+            echo "DEVELOPER_ID_IDENTITY=$IDENTITY"
+            echo "KEYCHAIN_PATH=$KEYCHAIN"
+          } >> "$GITHUB_ENV"
+
+      # Secrets: APPLE_API_KEY_P8 is the .p8 content; APPLE_KEY_ID and
+      # ASC_ISSUER_ID are the matching App Store Connect API key identifiers.
+      - name: Import notary API key
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_KEY_ID: ${{ secrets.APPLE_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${APPLE_API_KEY_P8:-}" ] || [ -z "${APPLE_KEY_ID:-}" ] || [ -z "${ASC_ISSUER_ID:-}" ]; then
+            echo "::error::APPLE_API_KEY_P8, APPLE_KEY_ID, and ASC_ISSUER_ID must be set; see docs/releasing.md"
+            exit 1
+          fi
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/AuthKey.p8"
+          {
+            echo "NOTARY_KEY_PATH=$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_KEY_ID=$APPLE_KEY_ID"
+            echo "ASC_ISSUER_ID=$ASC_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Build, sign, notarize, staple, and verify the DMG
+        env:
+          VERSION: ${{ github.ref_name }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          DMG_PATH: ${{ github.workspace }}/dist/Droplane-${{ github.ref_name }}-arm64.dmg
+        run: |
+          set -euo pipefail
+          export VERSION="${VERSION#v}"
+          export SIGN_IDENTITY="$DEVELOPER_ID_IDENTITY"
+          ./scripts/package-dmg.sh
+
+      - name: Check the app bundle and create the remaining release assets
+        run: |
+          set -euo pipefail
+          APP=build/Droplane.app
+          codesign --verify --deep --strict "$APP"
+          if otool -L "$APP/Contents/MacOS/Droplane" "$APP"/Contents/Frameworks/*.dylib | grep -q /opt/homebrew; then
+            echo "::error::app still links against Homebrew libraries"
+            exit 1
+          fi
+          test -f "$APP/Contents/Resources/LICENSE"
+          test -f "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
+          test -f "$APP/Contents/Resources/LICENSES/LGPL-2.1-libmtp.txt"
+          git archive --format=tar.gz --prefix="droplane-${GITHUB_REF_NAME}/" \
+            -o "dist/droplane-${GITHUB_REF_NAME}-source.tar.gz" "$GITHUB_REF_NAME"
           (cd dist && shasum -a 256 ./* > SHA256SUMS.txt)
 
       - name: Generate SLSA provenance
@@ -52,7 +118,7 @@ jobs:
 
       # The bundle is JSON lines of Sigstore-signed in-toto SLSA provenance. Verify with:
       # gh attestation verify <asset> --repo OWNER/REPO --bundle <tag>.intoto.jsonl
-      - name: Create draft release, attach assets, publish
+      - name: Create release and attach assets
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -60,5 +126,18 @@ jobs:
         run: |
           set -euo pipefail
           cp "$BUNDLE" "dist/${GITHUB_REPOSITORY#*/}-${TAG}.intoto.jsonl"
-          gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --draft --prerelease --verify-tag --generate-notes
-          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false --prerelease
+          if [[ "$TAG" == *-* ]]; then
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+              --prerelease --verify-tag --generate-notes
+          else
+            gh release create "$TAG" dist/* --repo "$GITHUB_REPOSITORY" \
+              --verify-tag --generate-notes
+          fi
+
+      - name: Clean up signing material
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN_PATH:-}" ]; then
+            security delete-keychain "$KEYCHAIN_PATH" 2>/dev/null || true
+          fi
+          rm -f "$RUNNER_TEMP/developer-id.p12" "$RUNNER_TEMP/AuthKey.p8"
