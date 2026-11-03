@@ -118,7 +118,7 @@ Then run the real signing and notarization:
 ```bash
 SIGN_IDENTITY="Developer ID Application: Name (TEAMID)" \
 NOTARY_PROFILE="droplane-notary" \
-VERSION=0.1.1 BUILD_NUMBER=2 \
+VERSION=0.1.2 BUILD_NUMBER=3 \
 ./scripts/package-dmg.sh
 ```
 
@@ -131,8 +131,8 @@ The script builds the app, signs the app and every bundled dylib, creates a DMG 
 3. Tag the merged commit and push the tag:
 
    ```bash
-   git tag v0.1.1
-   git push origin v0.1.1
+   git tag v0.1.2
+   git push origin v0.1.2
    ```
 
 4. The `Release` workflow builds the DMG, signs and notarizes it, creates `SHA256SUMS.txt`, attests provenance, and publishes the GitHub release. A tag containing a hyphen is published as a pre-release; a plain `vX.Y.Z` tag is published as a normal release.
@@ -140,10 +140,10 @@ The script builds the app, signs the app and every bundled dylib, creates a DMG 
 ## Verify the published download
 
 ```bash
-spctl -a -vvv -t open --context context:primary-signature Droplane-v0.1.1-arm64.dmg
-stapler validate Droplane-v0.1.1-arm64.dmg
+spctl -a -vvv -t open --context context:primary-signature Droplane-v0.1.2-arm64.dmg
+stapler validate Droplane-v0.1.2-arm64.dmg
 shasum -a 256 -c SHA256SUMS.txt --ignore-missing
-gh attestation verify Droplane-v0.1.1-arm64.dmg --repo ryabinski-labs/droplane
+gh attestation verify Droplane-v0.1.2-arm64.dmg --repo ryabinski-labs/droplane
 ```
 
 `spctl` must report `source=Notarized Developer ID`. Then test on a clean Mac: download the DMG from the release, open it, drag Droplane to Applications, and launch it. No Gatekeeper approval should appear.

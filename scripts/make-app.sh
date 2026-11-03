@@ -2,7 +2,7 @@
 # Builds a local, ad-hoc signed Droplane.app for testing. Release signing/notarization is separate.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.1.2}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 swift build -c release
 APP="${APP_PATH:-build/Droplane.app}"

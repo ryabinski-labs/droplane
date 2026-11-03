@@ -21,7 +21,7 @@ if [ "${1:-}" = "--no-notarize" ]; then
     NO_NOTARIZE=1
 fi
 
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-0.1.2}"
 BUILD_NUMBER="${BUILD_NUMBER:-1}"
 APP="${APP_PATH:-build/Droplane.app}"
 DIST="${DIST_DIR:-dist}"

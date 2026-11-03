@@ -4,6 +4,8 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-03
+
 ### Added
 
 - A custom Beam app icon, built from a vector source with a reproducible `.icns` pipeline.
@@ -41,6 +43,7 @@ First pre-release. Ad-hoc signed, Apple Silicon only; not yet notarized.
 - Rename, new folder, and delete on the phone.
 - Demo Phone for trying the app without a device.
 
-[Unreleased]: https://github.com/ryabinski-labs/droplane/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/ryabinski-labs/droplane/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/ryabinski-labs/droplane/releases/tag/v0.1.2
 [0.1.1]: https://github.com/ryabinski-labs/droplane/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ryabinski-labs/droplane/releases/tag/v0.1.0
