@@ -31,7 +31,7 @@ MOUNT="$(mktemp -d "${TMPDIR:-/tmp}/droplane-mount.XXXXXX")"
 
 cleanup() {
     hdiutil detach "$MOUNT" -quiet 2>/dev/null || true
-    rm -rf "$STAGE" "$MOUNT"
+    rm -rf "$STAGE" "$MOUNT" "${DMG_SIGN_ERROR:-}"
 }
 trap cleanup EXIT
 
@@ -62,7 +62,25 @@ hdiutil create \
 if [ "$SIGN_IDENTITY" = "-" ]; then
     codesign --force --sign - "$DMG"
 else
-    codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG"
+    DMG_SIGN_ERROR="$(mktemp "${TMPDIR:-/tmp}/droplane-dmg-codesign.XXXXXX")"
+    signed=0
+    for attempt in 1 2 3 4 5; do
+        if codesign --force --timestamp --sign "$SIGN_IDENTITY" "$DMG" 2>"$DMG_SIGN_ERROR"; then
+            signed=1
+            break
+        fi
+        if ! grep -q "timestamp service is not available" "$DMG_SIGN_ERROR"; then
+            cat "$DMG_SIGN_ERROR" >&2
+            exit 1
+        fi
+        echo "codesign timestamp service unavailable for the DMG; retrying ($attempt/5)" >&2
+        sleep 3
+    done
+    if [ "$signed" -ne 1 ]; then
+        cat "$DMG_SIGN_ERROR" >&2
+        exit 1
+    fi
+    rm -f "$DMG_SIGN_ERROR"
 fi
 
 if [ "$NO_NOTARIZE" -eq 0 ]; then
