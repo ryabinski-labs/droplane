@@ -79,6 +79,9 @@ final class AppModel {
     var hint: String?
     var showHidden = false
     var transfers: [TransferItem] = []
+    /// Batches in the current queue run. It starts when the queue starts and clears
+    /// when the queue is empty, so finished files keep contributing to the total.
+    private(set) var progressBatches: Set<UUID> = []
     var conflict: PendingConflict?
     var error: String?
     /// Bumped when a batch finishes so open folders re-list.
@@ -94,12 +97,29 @@ final class AppModel {
 
     var activeCount: Int { transfers.filter { !$0.isFinished }.count }
 
-    /// Overall progress of the batches still running, for the toolbar ring.
-    var activeProgress: Double {
-        let batches = Set(transfers.filter { !$0.isFinished }.map(\.batch))
-        let items = transfers.filter { batches.contains($0.batch) && !$0.isFolder }
-        let total = items.reduce(UInt64(0)) { $0 + $1.total }
-        return total == 0 ? 0 : Double(items.reduce(UInt64(0)) { $0 + $1.done }) / Double(total)
+    private var cycleTransfers: [TransferItem] {
+        transfers.filter { progressBatches.contains($0.batch) }
+    }
+
+    /// Combined current-file and whole-queue progress for the copy bar and toolbar ring.
+    var progress: TransferProgress {
+        TransferProgress(items: cycleTransfers.map {
+            TransferProgress.Item(name: $0.name, total: $0.total, done: $0.done, state: $0.state, isFolder: $0.isFolder)
+        })
+    }
+
+    /// The item the bar calls "Copying …": the running one, else the next queued one.
+    var currentTransfer: TransferItem? {
+        cycleTransfers.first { $0.state == .running } ?? cycleTransfers.first { !$0.isFinished }
+    }
+
+    /// Overall fraction of the current queue run, for the toolbar ring.
+    var activeProgress: Double { progress.fraction }
+
+    /// Whether "Clear Finished" has any row it may remove without taking bytes
+    /// out of the current queue run's total.
+    var canClearFinished: Bool {
+        transfers.contains { $0.isFinished && !progressBatches.contains($0.batch) }
     }
 
     /// The phone's own name when it has one storage, otherwise the storage name.
@@ -291,6 +311,7 @@ final class AppModel {
         transfers += refs.map {
             TransferItem(batch: batch, job: .download($0, into: dir), name: $0.entry.name, destination: dest, isFolder: $0.entry.isFolder, total: $0.entry.size)
         }
+        progressBatches.insert(batch)
         startQueue()
     }
 
@@ -298,6 +319,7 @@ final class AppModel {
         guard !urls.isEmpty else { return }
         let batch = UUID()
         transfers += urls.map { uploadItem($0, batch: batch, storage: storage, folder: folder, folderName: folderName) }
+        progressBatches.insert(batch)
         startQueue()
     }
 
@@ -312,9 +334,11 @@ final class AppModel {
     private func startQueue() {
         guard !queueRunning else { return }
         queueRunning = true
+        progressBatches = Set(transfers.filter { !$0.isFinished }.map(\.batch))
         Task {
             while let next = transfers.first(where: { $0.state == .queued }) { await run(next) }
             queueRunning = false
+            progressBatches.removeAll()
             applyAll = nil
             phoneNames = [:]
             refreshToken += 1
@@ -504,7 +528,11 @@ final class AppModel {
         startQueue()
     }
 
-    func clearFinished() { transfers.removeAll { $0.isFinished } }
+    func clearFinished() {
+        // Finished files from the current queue run stay in the list (and the total)
+        // until the queue is empty; only older finished rows are removed here.
+        transfers.removeAll { $0.isFinished && !progressBatches.contains($0.batch) }
+    }
 
     // MARK: Conflicts (DL-006)
 

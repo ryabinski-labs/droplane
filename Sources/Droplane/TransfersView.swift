@@ -18,7 +18,7 @@ struct TransfersView: View {
             HStack {
                 Text(summary).foregroundStyle(.secondary)
                 Spacer()
-                Button("Clear Finished") { model.clearFinished() }.disabled(!model.transfers.contains { $0.isFinished })
+                Button("Clear Finished") { model.clearFinished() }.disabled(!model.canClearFinished)
                 Button("Stop All") { model.cancelAll() }.disabled(model.activeCount == 0)
             }
             .padding(10)

@@ -10,5 +10,6 @@ let package = Package(
         .target(name: "MTPBridge", dependencies: ["CLibMTP", "TransferCore"]),
         .executableTarget(name: "Droplane", dependencies: ["TransferCore", "MTPBridge"]),
         .testTarget(name: "TransferCoreTests", dependencies: ["TransferCore"]),
+        .testTarget(name: "DroplaneTests", dependencies: ["Droplane"]),
     ]
 )

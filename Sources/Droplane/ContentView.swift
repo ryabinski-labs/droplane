@@ -256,30 +256,42 @@ struct CopyProgressBar: View {
     let showTransfers: () -> Void
 
     var body: some View {
-        let batches = Set(model.transfers.filter { !$0.isFinished }.map(\.batch))
-        let items = model.transfers.filter { batches.contains($0.batch) && !$0.isFolder }
-        let current = items.first { $0.state == .running } ?? items.first { !$0.isFinished }
-        let finished = items.filter(\.isFinished).count
-        let done = items.reduce(UInt64(0)) { $0 + $1.done }
-        let total = items.reduce(UInt64(0)) { $0 + $1.total }
+        let progress = model.progress
         HStack(spacing: 10) {
-            Image(systemName: current?.toPhone == true ? "arrow.up.circle" : "arrow.down.circle")
+            Image(systemName: model.currentTransfer?.toPhone == true ? "arrow.up.circle" : "arrow.down.circle")
                 .foregroundStyle(.secondary)
             VStack(alignment: .leading, spacing: 3) {
                 HStack {
-                    Text(current.map { "Copying \($0.name)" } ?? "Copying…").lineLimit(1).truncationMode(.middle)
+                    Text(progress.currentName.map { "Copying \($0)" } ?? "Copying…")
+                        .lineLimit(1).truncationMode(.middle)
                     Spacer()
-                    Text(items.count > 1 ? "\(min(finished + 1, items.count)) of \(items.count)" : "")
-                        .foregroundStyle(.secondary).monospacedDigit()
+                    if progress.showsPosition {
+                        Text("\(progress.position) of \(progress.itemCount)")
+                            .foregroundStyle(.secondary).monospacedDigit()
+                    }
                 }
-                ProgressView(value: model.activeProgress).progressViewStyle(.linear)
-                Text("\(ByteCountFormatter.string(fromByteCount: Int64(done), countStyle: .file)) of \(ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file))")
+                if progress.isPreparing {
+                    ProgressView().progressViewStyle(.linear)
+                } else {
+                    ProgressView(value: progress.fraction).progressViewStyle(.linear)
+                }
+                if progress.showsPerFileLine {
+                    Text("\(bytes(progress.currentDone)) of \(bytes(progress.currentTotal)) this file")
+                        .font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                }
+                Text(totalLine(progress))
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
             .font(.callout)
             .contentShape(Rectangle())
             .onTapGesture(perform: showTransfers)
             .help("Show Transfers")
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(progress.currentName.map { "Copying \($0)" } ?? "Copying")
+            .accessibilityValue(accessibilityValue(progress))
+            .accessibilityHint("Show Transfers")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { showTransfers() }
             Button { model.cancelAll() } label: { Image(systemName: "xmark.circle.fill") }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
@@ -290,6 +302,32 @@ struct CopyProgressBar: View {
         .padding(.vertical, 8)
         .background(.bar)
         .accessibilityElement(children: .contain)
+    }
+
+    private func bytes(_ n: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(n), countStyle: .file)
+    }
+
+    private func totalLine(_ p: TransferProgress) -> String {
+        guard !p.isPreparing else { return "Preparing…" }
+        let amount = "\(bytes(p.overallDone)) of \(bytes(p.overallTotal))"
+        return p.showsPosition ? "\(amount) total" : amount
+    }
+
+    private func accessibilityValue(_ p: TransferProgress) -> String {
+        var parts: [String] = []
+        if p.showsPosition { parts.append("File \(p.position) of \(p.itemCount)") }
+        if p.isPreparing {
+            parts.append("Preparing")
+        } else {
+            parts.append("\(p.percent) percent")
+            if p.showsPerFileLine {
+                parts.append("\(bytes(p.currentDone)) of \(bytes(p.currentTotal)) for this file")
+            }
+            let amount = "\(bytes(p.overallDone)) of \(bytes(p.overallTotal))"
+            parts.append(p.showsPosition ? "\(amount) overall" : amount)
+        }
+        return parts.joined(separator: ", ")
     }
 }
 
