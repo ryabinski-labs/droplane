@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- A custom Beam app icon, built from a vector source with a reproducible `.icns` pipeline.
+
 ## [0.1.1] - 2026-11-03
 
 First signed and notarized release. Apple Silicon only.

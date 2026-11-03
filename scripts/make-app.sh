@@ -14,6 +14,7 @@ cat > "$APP/Contents/Info.plist" <<PL
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>com.ryabinskilabs.droplane</string>
 <key>CFBundleName</key><string>Droplane</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleExecutable</key><string>Droplane</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
@@ -43,6 +44,8 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$BIN"
 # the bundled dylibs. Local builds skip it; Developer ID builds (SIGN_IDENTITY set) keep it.
 # LGPL notices: ship the license texts with the app.
 RES="$APP/Contents/Resources"
+[ -f Resources/AppIcon.icns ] || { echo "error: Resources/AppIcon.icns is missing; run ./scripts/make-icon.sh" >&2; exit 1; }
+cp Resources/AppIcon.icns "$RES/AppIcon.icns"
 cp LICENSE THIRD_PARTY_NOTICES.md "$RES/"
 cp -R LICENSES "$RES/LICENSES"
 

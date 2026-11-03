@@ -49,6 +49,8 @@ jobs:
             echo "::error::app still links against Homebrew libraries"
             exit 1
           fi
+          test -f "$APP/Contents/Resources/AppIcon.icns"
+          test "$(plutil -extract CFBundleIconFile raw "$APP/Contents/Info.plist")" = "AppIcon"
           test -f "$APP/Contents/Resources/LICENSE"
           test -f "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
           test -f "$APP/Contents/Resources/LICENSES/LGPL-2.1-libmtp.txt"
