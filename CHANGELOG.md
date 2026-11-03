@@ -4,6 +4,22 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-03
+
+First signed and notarized release. Apple Silicon only.
+
+### Added
+
+- Developer ID signed, notarized, stapled DMG; macOS opens it without the unidentified-developer warning.
+- Release checksums, SHA-256 verification, and SLSA provenance for the DMG.
+- The copy bar now shows the current file and the overall queue total as separate lines.
+- The toolbar ring and VoiceOver use the same overall fraction.
+
+### Fixed
+
+- Finished files stay in the copy total until the queue is empty, so the bar no longer resets to the next file.
+- The copy bar's bar and byte text now use the same total.
+
 ## [0.1.0] - 2026-10-30
 
 First pre-release. Ad-hoc signed, Apple Silicon only; not yet notarized.
@@ -21,5 +37,6 @@ First pre-release. Ad-hoc signed, Apple Silicon only; not yet notarized.
 - Rename, new folder, and delete on the phone.
 - Demo Phone for trying the app without a device.
 
-[Unreleased]: https://github.com/ryabinski-labs/droplane/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ryabinski-labs/droplane/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/ryabinski-labs/droplane/releases/tag/v0.1.1
 [0.1.0]: https://github.com/ryabinski-labs/droplane/releases/tag/v0.1.0
