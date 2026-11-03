@@ -2,6 +2,8 @@
 # Builds a local, ad-hoc signed Droplane.app for testing. Release signing/notarization is separate.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+VERSION="${VERSION:-0.1.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-1}"
 swift build -c release
 APP="${APP_PATH:-build/Droplane.app}"
 rm -rf "$APP"; mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -14,8 +16,8 @@ cat > "$APP/Contents/Info.plist" <<PL
 <key>CFBundleName</key><string>Droplane</string>
 <key>CFBundleExecutable</key><string>Droplane</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>${VERSION}</string>
+<key>CFBundleVersion</key><string>${BUILD_NUMBER}</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>UTExportedTypeDeclarations</key><array><dict>

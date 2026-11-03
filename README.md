@@ -18,7 +18,7 @@ Droplane is a free, open-source Mac app that copies files between an Android pho
 | Who is it for? | Anyone who needs to move photos, videos, or documents between an Android phone and a Mac. |
 | What problem does it solve? | Macs can't open an Android phone's storage on their own, and the usual workarounds are dated or need developer tools. |
 | What is the outcome? | The phone's folders appear in a Finder-style window, and dragging files moves them, with progress and a Retry button if a copy fails. |
-| Project status | Pre-release. Downloads are ad-hoc signed, not yet signed with an Apple Developer ID or notarized, so macOS asks you to approve the first launch (steps below). |
+| Project status | Pre-release. The release pipeline now builds a Developer ID signed, notarized, stapled DMG; the first notarized release needs a Developer ID Application certificate created by the Account Holder. Until then, downloads are ad-hoc signed and macOS asks you to approve the first launch (steps below). |
 | License | MIT (see [LICENSE](LICENSE)). Bundled libmtp and libusb are LGPL-2.1-or-later (see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). |
 
 ![Droplane copying a video from the Demo Phone's PrimeCam folder, with the Finder-style sidebar and a progress bar](docs/images/droplane.png)
@@ -80,6 +80,8 @@ You need an Apple Silicon Mac (M1 or later) on macOS 14 or newer. The download i
    - **macOS 14 (Sonoma):** Control-click Droplane in Applications, choose **Open**, then click **Open**.
 4. Plug in your phone, unlock it, and choose **File transfer** in the USB notification. The phone appears in the sidebar within a few seconds.
 
+Once the first notarized release is published, the download will be a DMG. Open it, drag **Droplane** to **Applications**, and skip the Open Anyway steps above.
+
 Only approve apps you trust. To check that the download is the file this repository built, compare its checksum with `SHA256SUMS.txt` from the same release:
 
 ```sh
@@ -87,7 +89,7 @@ shasum -a 256 -c SHA256SUMS.txt --ignore-missing
 gh attestation verify Droplane-<version>-arm64.zip --repo ryabinski-labs/droplane
 ```
 
-Signed and notarized builds, which open with no warning, and a Homebrew cask are planned but not available yet (see [Project status](#project-status)).
+The release workflow is ready to produce signed, notarized DMGs; the first one is blocked on the Developer ID Application certificate. See [docs/releasing.md](docs/releasing.md). A Homebrew cask follows after the first notarized release.
 
 ### Build from source
 
@@ -127,15 +129,15 @@ Droplane has no telemetry, analytics, or accounts, and it makes no network conne
 
 ## Project status
 
-Pre-release. The remaining work before a notarized release:
+Pre-release. The release workflow now builds a Developer ID signed, notarized, stapled DMG. The remaining work before the first notarized release:
 
-- Developer ID signing and notarization (needs the maintainers' Apple certificate), so the first-launch approval goes away.
+- Create the Developer ID Application certificate as the Apple Developer Account Holder; the release workflow is ready (see [docs/releasing.md](docs/releasing.md)).
 - A Homebrew cask, once releases are notarized.
 - Intel (universal) builds.
 - A signed update channel.
 - Thumbnails and an icon view.
 
-The behavior is specified in [docs/prd/android-file-copier.md](docs/prd/android-file-copier.md) and the test plan in [tdd/android-file-copier.tdd.md](tdd/android-file-copier.tdd.md). The 30 scenario tests in `Tests/` are placeholders written first (test-driven); they currently pass only as expected failures and are being turned into real tests.
+The behavior is specified in [docs/prd/android-file-copier.md](docs/prd/android-file-copier.md) and the test plan in [tdd/android-file-copier.tdd.md](tdd/android-file-copier.tdd.md). The 30 original scenario tests in `Tests/TransferCoreTests` are placeholders written first (test-driven); they currently pass only as expected failures and are being turned into real tests. The 7 copy-progress tests in `Tests/DroplaneTests` are real regression tests.
 
 ## Development
 
