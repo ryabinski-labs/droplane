@@ -48,6 +48,23 @@ cp -R LICENSES "$RES/LICENSES"
 
 IDENTITY="${SIGN_IDENTITY:--}"
 RUNTIME=(); [ "$IDENTITY" != "-" ] && RUNTIME=(--options runtime --timestamp)
-codesign --force --sign "$IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} "$FW"/*.dylib
-codesign --force --sign "$IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} "$APP"
+SIGN_ERROR="$(mktemp "${TMPDIR:-/tmp}/droplane-codesign.XXXXXX")"
+trap 'rm -f "$SIGN_ERROR"' EXIT
+sign() {
+    for attempt in 1 2 3 4 5; do
+        if codesign --force --sign "$IDENTITY" ${RUNTIME[@]+"${RUNTIME[@]}"} "$@" 2>"$SIGN_ERROR"; then
+            return 0
+        fi
+        if ! grep -q "timestamp service is not available" "$SIGN_ERROR"; then
+            cat "$SIGN_ERROR" >&2
+            return 1
+        fi
+        echo "codesign timestamp service unavailable; retrying ($attempt/5)" >&2
+        sleep 3
+    done
+    cat "$SIGN_ERROR" >&2
+    return 1
+}
+sign "$FW"/*.dylib
+sign "$APP"
 echo "$APP"
