@@ -144,6 +144,7 @@ The behavior is specified in [docs/prd/android-file-copier.md](docs/prd/android-
 brew install libmtp
 swift build          # build the app and libraries
 swift test           # run the tests
+./scripts/fuzz.sh 60 # fuzz the parsers that read phone data
 ./scripts/make-app.sh  # package build/Droplane.app
 ```
 
@@ -155,7 +156,7 @@ Questions and bugs: open an issue. See [SUPPORT.md](SUPPORT.md). This is a volun
 
 ## Security
 
-Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md).
+Report vulnerabilities privately, as described in [SECURITY.md](SECURITY.md). OpenSSF Scorecard findings and their status are tracked in [docs/security/scorecard.md](docs/security/scorecard.md).
 
 ## License
 
