@@ -70,13 +70,20 @@ struct FileOutline: NSViewRepresentable {
         let ov = BrowserOutlineView()
         ov.coordinator = c
         c.outline = ov
-        for (id, title, width) in [("name", "Name", 320.0), ("modified", "Date Modified", 190.0), ("size", "Size", 90.0), ("kind", "Kind", 150.0)] {
+        for (id, title, width) in [("name", "Name", 225.0), ("modified", "Date Modified", 135.0), ("size", "Size", 72.0),
+                                   ("kind", "Kind", 84.0), ("copied", "Copied", 44.0), ("orientation", "Orientation", 100.0)] {
             let col = NSTableColumn(identifier: .init(id))
             col.title = title
             col.width = width
-            col.minWidth = 60
-            col.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: id != "modified")
+            col.minWidth = id == "copied" ? 48 : 60
+            // Orientation values arrive progressively, so sorting them would
+            // reorder the list under the pointer; that column has no sort descriptor.
+            if id != "orientation" {
+                col.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: id != "modified" && id != "copied")
+            }
             if id == "size" { col.headerCell.alignment = .right }
+            if id == "copied" { col.headerToolTip = "Files copied to your Mac in this session" }
+            if id == "orientation" { col.headerToolTip = "Read from the phone's thumbnail; values appear as they load" }
             ov.addTableColumn(col)
         }
         ov.outlineTableColumn = ov.tableColumns[0]
@@ -110,6 +117,13 @@ struct FileOutline: NSViewRepresentable {
         let c = context.coordinator
         c.browser = browser
         c.model = model
+        browser.onCopiedMarksChanged = { [weak c] in c?.reloadCopiedColumn() }
+        browser.onOrientationCellChanged = { [weak c] node in c?.reloadOrientationCell(node) }
+        if let ov = scroll.documentView as? NSOutlineView {
+            for id in ["copied", "orientation"] {
+                ov.tableColumn(withIdentifier: .init(id))?.isHidden = !browser.isPhone
+            }
+        }
         if c.version != version {
             c.version = version
             c.setRoots(browser.nodes)
@@ -147,11 +161,19 @@ struct FileOutline: NSViewRepresentable {
                 case "modified": r = cmp(a.modified ?? .distantPast, b.modified ?? .distantPast)
                 case "size": r = cmp(a.size, b.size)
                 case "kind": r = a.kind.localizedStandardCompare(b.kind)
+                case "copied":
+                    let ac = copied(a), bc = copied(b)
+                    r = ac == bc ? .orderedSame : (ac ? .orderedDescending : .orderedAscending)
                 default: r = a.name.localizedStandardCompare(b.name)
                 }
                 if r == .orderedSame { return a.name.localizedStandardCompare(b.name) == .orderedAscending }
                 return ascending ? r == .orderedAscending : r == .orderedDescending
             }
+        }
+
+        private func copied(_ node: Node) -> Bool {
+            guard let entry = node.phoneRef?.entry else { return false }
+            return model?.isCopied(entry) ?? false
         }
 
         private func resort(_ nodes: [Node]) -> [Node] {
@@ -197,6 +219,8 @@ struct FileOutline: NSViewRepresentable {
         func outlineView(_ ov: NSOutlineView, viewFor col: NSTableColumn?, item: Any) -> NSView? {
             guard let node = item as? Node, let col else { return nil }
             let cell = (ov.makeView(withIdentifier: col.identifier, owner: nil) as? NSTableCellView) ?? makeCell(col.identifier)
+            cell.toolTip = nil
+            cell.setAccessibilityLabel(nil)
             switch col.identifier.rawValue {
             case "name":
                 cell.textField?.stringValue = node.name
@@ -205,6 +229,36 @@ struct FileOutline: NSViewRepresentable {
                 cell.textField?.stringValue = node.modified.map(dateFormatter.string(from:)) ?? "--"
             case "size":
                 cell.textField?.stringValue = node.isFolder ? "--" : ByteCountFormatter.string(fromByteCount: Int64(node.size), countStyle: .file)
+            case "copied":
+                let isCopied = copied(node)
+                cell.imageView?.image = isCopied
+                    ? NSImage(systemSymbolName: "checkmark.circle.fill", accessibilityDescription: "Copied")
+                    : nil
+                cell.imageView?.contentTintColor = .systemGreen
+            case "orientation":
+                guard node.isVideo || node.isPhoto else {
+                    cell.textField?.stringValue = "—"
+                    cell.textField?.textColor = .tertiaryLabelColor
+                    cell.imageView?.image = nil
+                    return cell
+                }
+                if let dimensions = node.dimensions {
+                    cell.textField?.stringValue = dimensions.orientation.label
+                    cell.textField?.textColor = .labelColor
+                    cell.imageView?.image = NSImage(systemSymbolName: dimensions.orientation.symbolName,
+                                                    accessibilityDescription: nil)
+                    cell.imageView?.contentTintColor = .secondaryLabelColor
+                    cell.toolTip = "\(dimensions.width) by \(dimensions.height)"
+                    cell.setAccessibilityLabel("\(dimensions.orientation.label), \(dimensions.width) by \(dimensions.height)")
+                } else {
+                    cell.textField?.stringValue = "—"
+                    cell.textField?.textColor = .tertiaryLabelColor
+                    cell.imageView?.image = nil
+                    if let browser, let model { browser.requestOrientation(for: node, model: model) }
+                    let failed = browser?.orientationFailed(for: node) == true
+                    cell.toolTip = failed ? "Orientation not available from this phone" : "Checking orientation…"
+                    cell.setAccessibilityLabel(failed ? "Orientation not available from this phone" : "Checking orientation")
+                }
             default:
                 cell.textField?.stringValue = node.kind
             }
@@ -214,22 +268,39 @@ struct FileOutline: NSViewRepresentable {
         private func makeCell(_ id: NSUserInterfaceItemIdentifier) -> NSTableCellView {
             let cell = NSTableCellView()
             cell.identifier = id
-            let text = NSTextField(labelWithString: "")
-            text.translatesAutoresizingMaskIntoConstraints = false
-            text.lineBreakMode = .byTruncatingMiddle
-            cell.addSubview(text)
-            cell.textField = text
-            if id.rawValue == "name" {
+            if id.rawValue == "copied" {
                 let image = NSImageView()
                 image.translatesAutoresizingMaskIntoConstraints = false
+                image.imageScaling = .scaleProportionallyDown
                 cell.addSubview(image)
                 cell.imageView = image
                 NSLayoutConstraint.activate([
                     image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
                     image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
-                    image.widthAnchor.constraint(equalToConstant: 16),
-                    image.heightAnchor.constraint(equalToConstant: 16),
-                    text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: 6),
+                    image.widthAnchor.constraint(equalToConstant: 14),
+                    image.heightAnchor.constraint(equalToConstant: 14),
+                ])
+                return cell
+            }
+            let text = NSTextField(labelWithString: "")
+            text.translatesAutoresizingMaskIntoConstraints = false
+            text.lineBreakMode = id.rawValue == "name" ? .byTruncatingMiddle : .byTruncatingTail
+            cell.addSubview(text)
+            cell.textField = text
+            if id.rawValue == "name" || id.rawValue == "orientation" {
+                let image = NSImageView()
+                image.translatesAutoresizingMaskIntoConstraints = false
+                image.imageScaling = .scaleProportionallyDown
+                cell.addSubview(image)
+                cell.imageView = image
+                let width: CGFloat = id.rawValue == "name" ? 16 : 14
+                let gap: CGFloat = id.rawValue == "name" ? 6 : 4
+                NSLayoutConstraint.activate([
+                    image.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 2),
+                    image.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
+                    image.widthAnchor.constraint(equalToConstant: width),
+                    image.heightAnchor.constraint(equalToConstant: width),
+                    text.leadingAnchor.constraint(equalTo: image.trailingAnchor, constant: gap),
                 ])
             } else {
                 text.textColor = .secondaryLabelColor
@@ -241,6 +312,27 @@ struct FileOutline: NSViewRepresentable {
                 text.centerYAnchor.constraint(equalTo: cell.centerYAnchor),
             ])
             return cell
+        }
+
+        /// Redraws the Copied column after a download finishes, without re-listing the folder.
+        func reloadCopiedColumn() {
+            guard let outline, let col = outline.tableColumns.firstIndex(where: { $0.identifier.rawValue == "copied" }) else { return }
+            if sort.key == "copied" {
+                roots = resort(roots)
+                outline.reloadData()
+                return
+            }
+            let visible = outline.rows(in: outline.visibleRect)
+            guard visible.length > 0 else { return }
+            let rows = IndexSet(integersIn: visible.location..<(visible.location + visible.length))
+            outline.reloadData(forRowIndexes: rows, columnIndexes: IndexSet(integer: col))
+        }
+
+        func reloadOrientationCell(_ node: Node) {
+            guard let outline, let col = outline.tableColumns.firstIndex(where: { $0.identifier.rawValue == "orientation" }) else { return }
+            let row = outline.row(forItem: node)
+            guard row >= 0 else { return }
+            outline.reloadData(forRowIndexes: IndexSet(integer: row), columnIndexes: IndexSet(integer: col))
         }
 
         func outlineViewSelectionDidChange(_ n: Notification) {

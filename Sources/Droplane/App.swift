@@ -48,6 +48,12 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut(".", modifiers: [.command, .shift])
             Button("Refresh") { browser?.reload(model); model.refreshStorages() }
                 .keyboardShortcut("r")
+            Divider()
+            ForEach(MediaFilter.allCases) { mode in
+                Button(mode.title) { browser?.setFilter(mode, model: model) }
+                    .keyboardShortcut(shortcut(for: mode), modifiers: .command)
+                    .disabled(browser?.isPhone != true)
+            }
         }
         CommandMenu("Go") {
             Button("Back") { browser?.goBack(model) }
@@ -62,6 +68,16 @@ struct BrowserCommands: Commands {
             ForEach(MacPlaces.all) { place in
                 Button(place.name) { browser?.go(.mac(place.url), model) }
             }
+        }
+    }
+
+    private func shortcut(for mode: MediaFilter) -> KeyEquivalent {
+        switch mode {
+        case .all: return "1"
+        case .videos: return "2"
+        case .photos: return "3"
+        case .horizontalVideos: return "4"
+        case .verticalVideos: return "5"
         }
     }
 }

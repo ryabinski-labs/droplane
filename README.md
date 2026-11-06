@@ -52,6 +52,8 @@ Facts about other apps come from their own websites and may change; check them b
 ## Features
 
 - Finder-style window: sidebar, sortable list with Name, Date Modified, Size and Kind, path bar, back and forward.
+- A Show menu that filters the phone list to All, Videos, Photos, Horizontal videos, or Vertical videos; Copy All Shown copies only what the filter shows.
+- A Copied column that marks files copied to the Mac in this session, and an Orientation column that reads Vertical, Horizontal, or Square from the phone.
 - Shortcuts to the phone's Camera, Downloads, Pictures, Movies and Documents folders.
 - A PrimeCam shortcut that appears when the phone has a Movies > PrimeCam folder. PrimeCam's guide to [copying videos to a Mac](https://primecam.app/import.html#copy) walks through it.
 - Drag files out of the phone into Finder, and drag files from Finder onto the phone. Folders copy with everything inside.

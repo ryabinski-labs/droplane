@@ -9,6 +9,20 @@ struct PhoneRef: Codable, Hashable {
     let entry: DeviceEntry
 }
 
+/// What makes a phone file count as already copied for this app session.
+/// The object id is not used because it changes when the phone reconnects.
+struct CopiedKey: Hashable, Sendable {
+    let name: String
+    let size: UInt64
+    let modified: TimeInterval
+
+    init(_ entry: DeviceEntry) {
+        name = entry.name
+        size = entry.size
+        modified = entry.modified.timeIntervalSince1970
+    }
+}
+
 final class CancelFlag: @unchecked Sendable { var cancelled = false }
 
 /// Throttles progress updates to the main thread.
@@ -37,13 +51,17 @@ struct TransferItem: Identifiable {
     var total: UInt64
     var done: UInt64 = 0
     var state: State = .queued
+    /// A preview opened from the list goes to a temporary folder, so it must
+    /// not make the phone row look copied to the user's Mac.
+    let marksCopied: Bool
     let flag = CancelFlag()
 
     var isFinished: Bool { state != .queued && state != .running }
     var toPhone: Bool { if case .upload = job { return true }; return false }
 
     func retried() -> TransferItem {
-        TransferItem(batch: batch, job: job, name: name, destination: destination, isFolder: isFolder, total: total)
+        TransferItem(batch: batch, job: job, name: name, destination: destination, isFolder: isFolder,
+                     total: total, marksCopied: marksCopied)
     }
 }
 
@@ -87,6 +105,10 @@ final class AppModel {
     /// Bumped when a batch finishes so open folders re-list.
     private(set) var refreshToken = 0
     private(set) var transferWindowRequest = 0
+    /// Phone files copied during this app session, cleared on quit or a new phone.
+    private(set) var copiedKeys: Set<CopiedKey> = []
+    /// Bumped when a copied mark changes, so open lists can redraw that column.
+    private(set) var copiedVersion = 0
 
     @ObservationIgnored private var watching = false
     @ObservationIgnored private var queueRunning = false
@@ -257,6 +279,17 @@ final class AppModel {
         return await Task.detached { Result { try d.list(storage: storage, folder: folder) } }.value
     }
 
+    /// Asks the phone for a file's pixel size. The list calls this off the main
+    /// thread and caches the answer for the rest of the session.
+    func mediaDimensions(_ ref: PhoneRef) async -> MediaDimensions? {
+        guard let d = device else { return nil }
+        return await Task.detached { (try? d.dimensions(of: ref.entry)) ?? nil }.value
+    }
+
+    func isCopied(_ entry: DeviceEntry) -> Bool {
+        copiedKeys.contains(CopiedKey(entry))
+    }
+
     func report(_ e: Error) { error = message(e) }
 
     // MARK: Phone file operations
@@ -296,20 +329,21 @@ final class AppModel {
     func open(_ ref: PhoneRef) {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("Droplane/\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        enqueueDownloads([ref], into: dir) { err in
+        enqueueDownloads([ref], into: dir, marksCopied: false) { err in
             if err == nil { NSWorkspace.shared.open(dir.appendingPathComponent(NameSanitizer.forMac(ref.entry.name))) }
         }
     }
 
     // MARK: Transfer queue (serial, A-006)
 
-    func enqueueDownloads(_ refs: [PhoneRef], into dir: URL, completion: ((Error?) -> Void)? = nil) {
+    func enqueueDownloads(_ refs: [PhoneRef], into dir: URL, marksCopied: Bool = true, completion: ((Error?) -> Void)? = nil) {
         guard !refs.isEmpty else { completion?(nil); return }
         let batch = UUID()
         if let completion { batchWaiters[batch] = completion }
         let dest = FileManager.default.displayName(atPath: dir.path)
         transfers += refs.map {
-            TransferItem(batch: batch, job: .download($0, into: dir), name: $0.entry.name, destination: dest, isFolder: $0.entry.isFolder, total: $0.entry.size)
+            TransferItem(batch: batch, job: .download($0, into: dir), name: $0.entry.name, destination: dest,
+                         isFolder: $0.entry.isFolder, total: $0.entry.size, marksCopied: marksCopied)
         }
         progressBatches.insert(batch)
         startQueue()
@@ -326,7 +360,8 @@ final class AppModel {
     private func uploadItem(_ u: URL, batch: UUID, storage: UInt32, folder: UInt32, folderName: String) -> TransferItem {
         let v = try? u.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey])
         return TransferItem(batch: batch, job: .upload(u, storage: storage, folder: folder, folderName: folderName),
-                            name: u.lastPathComponent, destination: folderName, isFolder: v?.isDirectory ?? false, total: UInt64(v?.fileSize ?? 0))
+                            name: u.lastPathComponent, destination: folderName, isFolder: v?.isDirectory ?? false,
+                            total: UInt64(v?.fileSize ?? 0), marksCopied: false)
     }
 
     /// Progress shows in the toolbar ring and the Dock badge; the Transfers window
@@ -380,7 +415,8 @@ final class AppModel {
                 let folderName = target.lastPathComponent
                 addChildren(of: item, kids.map {
                     TransferItem(batch: item.batch, job: .download(PhoneRef(storage: ref.storage, entry: $0), into: target),
-                                 name: $0.name, destination: folderName, isFolder: $0.isFolder, total: $0.size)
+                                 name: $0.name, destination: folderName, isFolder: $0.isFolder, total: $0.size,
+                                 marksCopied: item.marksCopied)
                 })
                 finish(item.id, .done)
             } catch { finish(item.id, .failed(message(error))) }
@@ -493,6 +529,9 @@ final class AppModel {
         if let i = transfers.firstIndex(where: { $0.id == id }), transfers[i].state == .running {
             transfers[i].state = state
             if state == .done { transfers[i].done = transfers[i].total }
+            if case .download(let ref, _) = transfers[i].job, state == .done, transfers[i].marksCopied, !ref.entry.isFolder {
+                if copiedKeys.insert(CopiedKey(ref.entry)).inserted { copiedVersion += 1 }
+            }
             if case .failed = state { transferWindowRequest += 1 } // show Retry
         }
         settleBatches()

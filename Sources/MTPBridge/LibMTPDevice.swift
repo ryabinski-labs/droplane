@@ -156,4 +156,28 @@ public final class LibMTPDevice: MTPDevice, @unchecked Sendable {
         if id == 0 { throw lastError("Couldn't create \(name)") }
         return id
     }
+
+    /// Android exposes a representative sample for most media and a JPEG
+    /// thumbnail for almost everything else. Both carry the pixel size, so the
+    /// list can show orientation without downloading the full file.
+    public func dimensions(of entry: DeviceEntry) throws -> MediaDimensions? {
+        guard !entry.isFolder, MediaClassifier.kind(of: entry.name) != .other else { return nil }
+        mtpLock.lock(); defer { mtpLock.unlock() }
+        if let sample = LIBMTP_new_filesampledata_t() {
+            defer { LIBMTP_destroy_filesampledata_t(sample) }
+            if LIBMTP_Get_Representative_Sample(dev, entry.id, sample) == 0,
+               sample.pointee.width > 0, sample.pointee.height > 0 {
+                return MediaDimensions(width: Int(sample.pointee.width), height: Int(sample.pointee.height))
+            }
+        }
+        var data: UnsafeMutablePointer<UInt8>?
+        var size: UInt32 = 0
+        if LIBMTP_Get_Thumbnail(dev, entry.id, &data, &size) == 0, let data, size > 0 {
+            defer { free(data) }
+            if let s = JPEGDimensions.size(in: Data(bytes: data, count: Int(size))) {
+                return MediaDimensions(width: s.width, height: s.height)
+            }
+        }
+        return nil
+    }
 }

@@ -7,6 +7,8 @@ public final class DemoDevice: MTPDevice, @unchecked Sendable {
     private var nodes: [UInt32: (entry: DeviceEntry, parent: UInt32, storage: UInt32, data: Data?)] = [:]
     private var nextID: UInt32 = 100
     public var delayPerChunk: TimeInterval = 0.02
+    /// Simulates the USB round trip a thumbnail or representative sample costs.
+    public var orientationDelay: TimeInterval = 0.2
 
     public init() {
         let now = Date()
@@ -19,6 +21,9 @@ public final class DemoDevice: MTPDevice, @unchecked Sendable {
         let cam = add("Camera", folder: true, parent: dcim)
         for i in 1...12 { _ = add("IMG_20261030_\(String(format: "%04d", i)).jpg", folder: false, parent: cam, size: 2_400_000 + i * 90_000) }
         _ = add("VID_20261029_1802.mp4", folder: false, parent: cam, size: 48_000_000)
+        _ = add("VID_20261029_1803_vertical.mp4", folder: false, parent: cam, size: 32_000_000)
+        _ = add("VID_20261029_1805_square.mp4", folder: false, parent: cam, size: 18_000_000)
+        _ = add("VID_20261030_0900_no-thumbnail.mov", folder: false, parent: cam, size: 24_000_000)
         let dl = add("Download", folder: true, parent: 0)
         _ = add("boarding-pass.pdf", folder: false, parent: dl, size: 310_000)
         _ = add("notes: draft.txt", folder: false, parent: dl, size: 1_200)
@@ -27,6 +32,7 @@ public final class DemoDevice: MTPDevice, @unchecked Sendable {
         let movies = add("Movies", folder: true, parent: 0)
         let prime = add("PrimeCam", folder: true, parent: movies)
         _ = add("PrimeCam_20261030_1421.mp4", folder: false, parent: prime, size: 220_000_000)
+        _ = add("PrimeCam_20261030_1430.mov", folder: false, parent: prime, size: 180_000_000)
     }
 
     public func storages() throws -> [StorageInfo] {
@@ -77,5 +83,32 @@ public final class DemoDevice: MTPDevice, @unchecked Sendable {
         let id = nextID; nextID += 1
         nodes[id] = (DeviceEntry(id: id, name: name, isFolder: true, size: 0, modified: Date()), parent, storage, nil)
         return id
+    }
+
+    /// A deterministic mix of orientations so every filter state can be tried
+    /// without a phone: Camera has horizontal, vertical, and square clips, and
+    /// PrimeCam has one horizontal and one vertical take.
+    public func dimensions(of entry: DeviceEntry) throws -> MediaDimensions? {
+        guard !entry.isFolder else { return nil }
+        if orientationDelay > 0 { Thread.sleep(forTimeInterval: orientationDelay) }
+        switch MediaClassifier.kind(of: entry.name) {
+        case .video:
+            if entry.name.localizedCaseInsensitiveContains("no-thumbnail") { return nil }
+            if entry.name.localizedCaseInsensitiveContains("vertical") || entry.name.contains("1430") {
+                return MediaDimensions(width: 2160, height: 3840)
+            }
+            if entry.name.localizedCaseInsensitiveContains("square") || entry.name.contains("1805") {
+                return MediaDimensions(width: 1080, height: 1080)
+            }
+            return MediaDimensions(width: 3840, height: 2160)
+        case .photo:
+            let last = entry.name.split(separator: "_").last.map(String.init) ?? ""
+            let digits = String(last.prefix(4))
+            if digits == "0006" { return MediaDimensions(width: 3024, height: 3024) }
+            if let n = Int(digits), n % 4 == 0 { return MediaDimensions(width: 3024, height: 4032) }
+            return MediaDimensions(width: 4032, height: 3024)
+        case .other:
+            return nil
+        }
     }
 }

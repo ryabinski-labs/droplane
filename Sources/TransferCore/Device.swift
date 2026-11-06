@@ -57,4 +57,11 @@ public protocol MTPDevice: AnyObject, Sendable {
     func delete(_ entry: DeviceEntry) throws
     /// Returns the new folder's id.
     func makeFolder(storage: UInt32, parent: UInt32, name: String) throws -> UInt32
+    /// Pixel size from the phone's sample or thumbnail, when the phone offers one.
+    func dimensions(of entry: DeviceEntry) throws -> MediaDimensions?
+}
+
+public extension MTPDevice {
+    /// Devices that cannot describe a file return nil; the list shows an em dash.
+    func dimensions(of entry: DeviceEntry) throws -> MediaDimensions? { nil }
 }

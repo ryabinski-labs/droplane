@@ -49,6 +49,11 @@ final class Node: NSObject {
     let kind: String
     /// Phone folders from the storage root down to and including this node.
     let crumbs: [Crumb]
+    let isVideo: Bool
+    let isPhoto: Bool
+    /// Pixel size from the phone; nil until checked.
+    var dimensions: MediaDimensions?
+    var orientation: MediaOrientation? { dimensions?.orientation }
     var children: [Node]?
     var isLoading = false
 
@@ -60,6 +65,8 @@ final class Node: NSObject {
         modified = entry.modified
         kind = entry.isFolder ? "Folder" : UTType(filenameExtension: (entry.name as NSString).pathExtension)?.localizedDescription ?? "Document"
         crumbs = parent + [Crumb(id: entry.id, name: entry.name)]
+        isVideo = !entry.isFolder && MediaClassifier.isVideo(entry.name)
+        isPhoto = !entry.isFolder && MediaClassifier.isPhoto(entry.name)
     }
 
     init(mac url: URL) {
@@ -71,12 +78,21 @@ final class Node: NSObject {
         modified = v?.contentModificationDate
         kind = v?.localizedTypeDescription ?? (isFolder ? "Folder" : "Document")
         crumbs = []
+        isVideo = !isFolder && MediaClassifier.isVideo(name)
+        isPhoto = !isFolder && MediaClassifier.isPhoto(name)
     }
 
     static let macKeys: Set<URLResourceKey> = [.isDirectoryKey, .isPackageKey, .fileSizeKey, .contentModificationDateKey, .localizedTypeDescriptionKey, .localizedNameKey]
 
     var phoneRef: PhoneRef? { if case .phone(let r) = ref { return r }; return nil }
     var macURL: URL? { if case .mac(let u) = ref { return u }; return nil }
+
+    /// Stable for one phone object in a session: the surrounding folder names,
+    /// the filename, and the byte size and modification date that identify it.
+    var orientationKey: String {
+        let path = crumbs.map(\.name).joined(separator: "/")
+        return "\(path)/\(name)|\(size)|\(Int(modified?.timeIntervalSince1970 ?? 0))"
+    }
 
     lazy var icon: NSImage = Icons.icon(for: self)
 
@@ -110,20 +126,179 @@ final class BrowserState {
     private(set) var location: Location?
     private var back: [Location] = []
     private var forward: [Location] = []
+    /// Everything in the current folder; `nodes` is the filtered view of it.
+    private(set) var allNodes: [Node] = []
     private(set) var nodes: [Node] = []
     private(set) var version = 0
     private(set) var isLoading = false
+    private(set) var mediaFilter: MediaFilter = .all
+    private(set) var isCheckingOrientation = false
+    private(set) var orientationTotal = 0
+    private(set) var orientationDone = 0
+    private(set) var orientationFailed = 0
     var selection: [Node] = []
     var renaming: Node?
     var pendingDelete: [PhoneRef] = []
     var newFolderPrompt = false
+    @ObservationIgnored var onCopiedMarksChanged: (() -> Void)?
+    @ObservationIgnored var onOrientationCellChanged: ((Node) -> Void)?
     @ObservationIgnored private var loadToken = UUID()
     @ObservationIgnored private var deviceID: ObjectIdentifier?
     @ObservationIgnored private var loadedLocation: Location?
+    @ObservationIgnored private var orientationCache: [String: MediaDimensions] = [:]
+    @ObservationIgnored private var orientationFailures: Set<String> = []
+    @ObservationIgnored private var orientationRequests: [String: Task<MediaDimensions?, Never>] = [:]
+    @ObservationIgnored private var orientationTask: Task<Void, Never>?
+    @ObservationIgnored private var orientationToken = UUID()
 
     var canGoBack: Bool { !back.isEmpty }
     var canGoForward: Bool { !forward.isEmpty }
     var isPhone: Bool { location?.isPhone ?? false }
+    var isFiltered: Bool { isPhone && mediaFilter != .all }
+    /// True when the filter is active and the folder (and its subfolders) has nothing to show.
+    var showsFilterEmptyState: Bool {
+        isFiltered && !isLoading && !isCheckingOrientation && nodes.isEmpty
+    }
+    var showsOrientationStrip: Bool {
+        isPhone && mediaFilter.requiresOrientationCheck && (isCheckingOrientation || orientationFailed > 0)
+    }
+
+    /// Exactly the files the list is showing, which is what Copy All Shown enqueues.
+    var shownPhoneRefs: [PhoneRef] {
+        nodes.filter { !$0.isFolder }.compactMap(\.phoneRef)
+    }
+
+    func setFilter(_ filter: MediaFilter, model: AppModel) {
+        guard filter != mediaFilter else { return }
+        mediaFilter = filter
+        selection = []
+        if filter.requiresOrientationCheck {
+            startOrientationChecks(model)
+        } else {
+            cancelOrientationChecks()
+            applyFilter()
+        }
+    }
+
+    func copiedMarksChanged() { onCopiedMarksChanged?() }
+
+    func orientationFailed(for node: Node) -> Bool {
+        orientationFailures.contains(node.orientationKey)
+    }
+
+    /// Rebuilds the visible list from the unfiltered folder contents.
+    private func applyFilter() {
+        guard isPhone else {
+            nodes = allNodes
+            version += 1
+            return
+        }
+        // Values checked earlier in this window are reused when the folder is visited again.
+        for node in allNodes where !node.isFolder && node.orientation == nil {
+            if let cached = orientationCache[node.orientationKey] { node.dimensions = cached }
+        }
+        nodes = allNodes.filter { node in
+            mediaFilter.includes(isFolder: node.isFolder, name: node.name, orientation: node.orientation)
+        }
+        version += 1
+    }
+
+    private func cancelOrientationChecks() {
+        orientationTask?.cancel()
+        orientationTask = nil
+        orientationToken = UUID()
+        isCheckingOrientation = false
+        orientationTotal = 0
+        orientationDone = 0
+        orientationFailed = 0
+    }
+
+    /// Checks every video in the folder so Horizontal or Vertical can show a
+    /// complete list. Matching rows appear as their check completes.
+    private func startOrientationChecks(_ model: AppModel) {
+        cancelOrientationChecks()
+        guard isPhone, mediaFilter.requiresOrientationCheck else {
+            applyFilter()
+            return
+        }
+        let videos = allNodes.filter { !$0.isFolder && $0.isVideo }
+        orientationTotal = videos.count
+        orientationDone = videos.filter {
+            $0.orientation != nil || orientationFailures.contains($0.orientationKey)
+        }.count
+        orientationFailed = videos.filter { orientationFailures.contains($0.orientationKey) }.count
+        let pending = videos.filter {
+            $0.orientation == nil && !orientationFailures.contains($0.orientationKey)
+        }
+        isCheckingOrientation = !pending.isEmpty
+        applyFilter()
+        guard isCheckingOrientation else { return }
+
+        let token = UUID()
+        orientationToken = token
+        orientationTask = Task { [weak self] in
+            var lastApply = Date.distantPast
+            for node in pending {
+                if Task.isCancelled { return }
+                guard let self, self.orientationToken == token, model.device != nil else { return }
+                _ = await self.resolveOrientation(for: node, model: model)
+                if Task.isCancelled { return }
+                guard self.orientationToken == token else { return }
+                self.orientationDone += 1
+                if node.orientation == nil { self.orientationFailed += 1 }
+                let now = Date()
+                if now.timeIntervalSince(lastApply) >= 0.15 || self.orientationDone == self.orientationTotal {
+                    self.applyFilter()
+                    lastApply = now
+                }
+            }
+            guard let self, self.orientationToken == token else { return }
+            self.isCheckingOrientation = false
+            self.applyFilter()
+        }
+    }
+
+    /// Fetches one file's orientation, using and filling the session cache.
+    /// Concurrent callers share one phone request, so a cell that is already
+    /// loading cannot be mistaken for a file the phone cannot describe.
+    func resolveOrientation(for node: Node, model: AppModel) async -> MediaDimensions? {
+        if let dimensions = node.dimensions { return dimensions }
+        let key = node.orientationKey
+        if let cached = orientationCache[key] {
+            node.dimensions = cached
+            return cached
+        }
+        if orientationFailures.contains(key) { return nil }
+        if let inFlight = orientationRequests[key] {
+            let dimensions = await inFlight.value
+            if let dimensions { node.dimensions = dimensions }
+            return dimensions
+        }
+        guard let ref = node.phoneRef, model.device != nil else { return nil }
+        let request = Task { await model.mediaDimensions(ref) }
+        orientationRequests[key] = request
+        let dimensions = await request.value
+        orientationRequests[key] = nil
+        if let dimensions {
+            node.dimensions = dimensions
+            orientationCache[key] = dimensions
+        } else if model.device != nil {
+            orientationFailures.insert(key)
+        }
+        return dimensions
+    }
+
+    /// Asks for one row's orientation after the list has drawn it. The coordinator
+    /// redraws that cell when the answer arrives.
+    func requestOrientation(for node: Node, model: AppModel) {
+        guard isPhone, !node.isFolder, node.dimensions == nil,
+              !orientationFailures.contains(node.orientationKey) else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            _ = await self.resolveOrientation(for: node, model: model)
+            self.onOrientationCellChanged?(node)
+        }
+    }
 
     func go(_ l: Location, _ model: AppModel) {
         guard l != location else { return }
@@ -195,9 +370,16 @@ final class BrowserState {
         let newID = model.device.map { ObjectIdentifier($0) }
         let sameDevice = newID == deviceID
         deviceID = newID
-        if !sameDevice { back.removeAll { $0.isPhone }; forward.removeAll { $0.isPhone } }
+        if !sameDevice {
+            back.removeAll { $0.isPhone }
+            forward.removeAll { $0.isPhone }
+            orientationCache.removeAll()
+            orientationFailures.removeAll()
+            orientationRequests.removeAll()
+            cancelOrientationChecks()
+        }
         guard let first = model.storages.first else {
-            if isPhone || location == nil { location = nil; nodes = []; version += 1 }
+            if isPhone || location == nil { location = nil; allNodes = []; nodes = []; version += 1 }
             return
         }
         var stillValid = false
@@ -212,18 +394,22 @@ final class BrowserState {
         let token = UUID()
         loadToken = token
         selection = []
+        cancelOrientationChecks()
         switch location {
         case nil:
+            allNodes = []
             nodes = []
             version += 1
         case .mac(let url)?:
-            nodes = Node.macNodes(in: url, hidden: model.showHidden)
+            allNodes = Node.macNodes(in: url, hidden: model.showHidden)
+            nodes = allNodes
             loadedLocation = location
             version += 1
         case .phone(let s, let path)?:
             isLoading = true
             // Never show the previous folder's contents under the new folder's title.
             if loadedLocation != location {
+                allNodes = []
                 nodes = []
                 version += 1
             }
@@ -234,9 +420,14 @@ final class BrowserState {
                 isLoading = false
                 switch result {
                 case .success(let entries):
-                    nodes = Node.phoneNodes(entries, storage: s, parent: path, hidden: model.showHidden)
+                    allNodes = Node.phoneNodes(entries, storage: s, parent: path, hidden: model.showHidden)
                     loadedLocation = target
-                case .failure(let e): nodes = []; model.report(e)
+                    applyFilter()
+                    if mediaFilter.requiresOrientationCheck { startOrientationChecks(model) }
+                case .failure(let e):
+                    allNodes = []
+                    nodes = []
+                    model.report(e)
                 }
                 version += 1
             }
@@ -244,13 +435,24 @@ final class BrowserState {
     }
 
     func loadChildren(of node: Node, _ model: AppModel) async -> [Node] {
+        let kids: [Node]
         switch node.ref {
-        case .mac(let url): return Node.macNodes(in: url, hidden: model.showHidden)
+        case .mac(let url): kids = Node.macNodes(in: url, hidden: model.showHidden)
         case .phone(let r):
             guard case .success(let entries) = await model.listPhone(storage: r.storage, folder: r.entry.id) else { return [] }
-            return Node.phoneNodes(entries, storage: r.storage, parent: node.crumbs, hidden: model.showHidden)
+            kids = Node.phoneNodes(entries, storage: r.storage, parent: node.crumbs, hidden: model.showHidden)
         }
-    }
+        guard isPhone, mediaFilter != .all else { return kids }
+        for kid in kids where !kid.isFolder && kid.orientation == nil {
+            if let cached = orientationCache[kid.orientationKey] { kid.dimensions = cached }
+        }
+        if mediaFilter.requiresOrientationCheck {
+            for kid in kids where !kid.isFolder && kid.isVideo && kid.orientation == nil
+                && !orientationFailures.contains(kid.orientationKey) {
+                _ = await resolveOrientation(for: kid, model: model)
+            }
+        }
+        return kids.filter { mediaFilter.includes(isFolder: $0.isFolder, name: $0.name, orientation: $0.orientation) }    }
 
     struct PathItem {
         let name: String
@@ -279,7 +481,13 @@ final class BrowserState {
     }
 
     func statusText(_ model: AppModel) -> String {
-        let count = nodes.count == 1 ? "1 item" : "\(nodes.count) items"
+        let total = allNodes.count
+        let count: String
+        if isFiltered {
+            count = "\(nodes.count) of \(total) items"
+        } else {
+            count = total == 1 ? "1 item" : "\(total) items"
+        }
         var free: Int64?
         switch location {
         case .phone(let s, _)?: free = model.storages.first { $0.id == s }.map { Int64($0.free) }
