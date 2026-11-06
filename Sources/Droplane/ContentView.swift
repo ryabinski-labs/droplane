@@ -12,6 +12,10 @@ struct ContentView: View {
     @AppStorage("copyDestination") private var copyDestination = MacPlaces.downloads.path
 
     var body: some View {
+        dialogsView
+    }
+
+    private var windowContent: some View {
         NavigationSplitView {
             Sidebar(browser: browser)
                 .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 300)
@@ -20,23 +24,44 @@ struct ContentView: View {
         }
         .navigationTitle(browser.title(model))
         .toolbar { toolbarContent }
-        .focusedSceneValue(\.browser, browser)
-        .task { model.startWatching(); browser.deviceChanged(model) }
-        .onChange(of: model.deviceGeneration) { browser.deviceChanged(model) }
-        .onChange(of: model.refreshToken) { browser.reload(model) }
-        .onChange(of: model.copiedVersion) { browser.copiedMarksChanged() }
-        .onChange(of: model.showHidden) { browser.reload(model) }
-        .onChange(of: model.transferWindowRequest) { openWindow(id: "transfers") }
-        .onChange(of: model.activeCount) { _, n in NSApp.dockTile.badgeLabel = n > 0 ? "\(n)" : nil }
-        .onChange(of: browser.renaming) { renameText = browser.renaming?.name ?? "" }
-        .alert("Rename", isPresented: renamingPresented) { renameActions }
-        .alert("New Folder", isPresented: newFolderPresented) { newFolderActions }
-        .confirmationDialog(deleteTitle, isPresented: deletePresented, titleVisibility: .visible) { deleteActions }
-        .alert("Something went wrong", isPresented: errorPresented) {
-            Button("OK") { model.error = nil }
-        } message: {
-            Text(model.error ?? "")
-        }
+    }
+
+    private var observedWindow: some View {
+        windowContent
+            .focusedSceneValue(\.browser, browser)
+            .task { startWatching() }
+            .onChange(of: model.deviceGeneration) { browser.deviceChanged(model) }
+            .onChange(of: model.refreshToken) { browser.reload(model) }
+            .onChange(of: model.copiedVersion) { browser.copiedMarksChanged() }
+            .onChange(of: model.showHidden) { browser.reload(model) }
+            .onChange(of: model.transferWindowRequest) { openWindow(id: "transfers") }
+            .onChange(of: model.activeCount) { _, count in updateDockBadge(count) }
+            .onChange(of: browser.renaming) { syncRenameText() }
+    }
+
+    private var dialogsView: some View {
+        observedWindow
+            .alert("Rename", isPresented: renamingPresented) { renameActions }
+            .alert("New Folder", isPresented: newFolderPresented) { newFolderActions }
+            .confirmationDialog(deleteTitle, isPresented: deletePresented, titleVisibility: .visible) { deleteActions }
+            .alert("Something went wrong", isPresented: errorPresented) {
+                Button("OK") { model.error = nil }
+            } message: {
+                Text(model.error ?? "")
+            }
+    }
+
+    private func startWatching() {
+        model.startWatching()
+        browser.deviceChanged(model)
+    }
+
+    private func updateDockBadge(_ count: Int) {
+        NSApp.dockTile.badgeLabel = count > 0 ? "\(count)" : nil
+    }
+
+    private func syncRenameText() {
+        renameText = browser.renaming?.name ?? ""
     }
 
     private var detailContent: some View {
