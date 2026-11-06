@@ -12,84 +12,14 @@ struct ContentView: View {
     @AppStorage("copyDestination") private var copyDestination = MacPlaces.downloads.path
 
     var body: some View {
-        @Bindable var b = browser
         NavigationSplitView {
             Sidebar(browser: browser)
                 .navigationSplitViewColumnWidth(min: 170, ideal: 210, max: 300)
         } detail: {
-            VStack(spacing: 0) {
-                if browser.location != nil {
-                    FileOutline(browser: browser, model: model, version: browser.version)
-                        .overlay {
-                            if browser.isLoading && browser.nodes.isEmpty {
-                                ProgressView().controlSize(.small)
-                            } else if browser.showsFilterEmptyState {
-                                FilterEmptyView(browser: browser, model: model)
-                            } else if browser.isCheckingOrientation && browser.nodes.isEmpty {
-                                OrientationCheckingView(browser: browser)
-                            }
-                        }
-                    if browser.showsOrientationStrip {
-                        Divider()
-                        OrientationCheckBar(browser: browser, model: model)
-                    }
-                    Divider()
-                    PathBar(browser: browser)
-                } else if model.device != nil {
-                    LockedView()
-                } else {
-                    EmptyDeviceView()
-                }
-                if model.activeCount > 0 {
-                    Divider()
-                    CopyProgressBar { openWindow(id: "transfers") }
-                }
-            }
+            detailContent
         }
         .navigationTitle(browser.title(model))
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                ControlGroup {
-                    Button { browser.goBack(model) } label: { Label("Back", systemImage: "chevron.left") }
-                        .disabled(!browser.canGoBack)
-                    Button { browser.goForward(model) } label: { Label("Forward", systemImage: "chevron.right") }
-                        .disabled(!browser.canGoForward)
-                }
-                .controlGroupStyle(.navigation)
-            }
-            ToolbarItemGroup(placement: .primaryAction) {
-                if browser.isPhone {
-                    HStack(spacing: 4) {
-                        Text("Show")
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
-                        Picker("Show", selection: Binding(get: { browser.mediaFilter }, set: { browser.setFilter($0, model: model) })) {
-                            ForEach(MediaFilter.allCases) { mode in
-                                Text(mode.shortTitle).tag(mode)
-                            }
-                        }
-                        .labelsHidden()
-                        .pickerStyle(.menu)
-                        .help("Show all files, videos, photos, or only horizontal or vertical videos")
-                    }
-                    if browser.mediaFilter.requiresOrientationCheck { copyShownButton }
-                    copyButton
-                    Button { browser.newFolderPrompt = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
-                        .help("New folder on the phone")
-                    Button { browser.pendingDelete = browser.selection.compactMap(\.phoneRef) } label: { Label("Delete", systemImage: "trash") }
-                        .disabled(browser.selection.isEmpty)
-                        .help("Delete from the phone")
-                }
-                Button { openWindow(id: "transfers") } label: {
-                    if model.activeCount > 0 {
-                        Label { Text("Transfers") } icon: { ProgressView(value: model.activeProgress).progressViewStyle(.circular).controlSize(.small) }
-                    } else {
-                        Label("Transfers", systemImage: "arrow.up.arrow.down.circle")
-                    }
-                }
-                .help(model.activeCount > 0 ? "Copying \(model.activeCount) \(model.activeCount == 1 ? "item" : "items")" : "Show transfers")
-            }
-        }
+        .toolbar { toolbarContent }
         .focusedSceneValue(\.browser, browser)
         .task { model.startWatching(); browser.deviceChanged(model) }
         .onChange(of: model.deviceGeneration) { browser.deviceChanged(model) }
@@ -99,29 +29,147 @@ struct ContentView: View {
         .onChange(of: model.transferWindowRequest) { openWindow(id: "transfers") }
         .onChange(of: model.activeCount) { _, n in NSApp.dockTile.badgeLabel = n > 0 ? "\(n)" : nil }
         .onChange(of: browser.renaming) { renameText = browser.renaming?.name ?? "" }
-        .alert("Rename", isPresented: Binding(get: { browser.renaming != nil }, set: { if !$0 { browser.renaming = nil } })) {
-            TextField("Name", text: $renameText)
-            Button("Rename") {
-                if let ref = browser.renaming?.phoneRef, !renameText.isEmpty, renameText != ref.entry.name { model.renamePhone(ref, to: renameText) }
-                browser.renaming = nil
-            }
-            Button("Cancel", role: .cancel) { browser.renaming = nil }
-        }
-        .alert("New Folder", isPresented: $b.newFolderPrompt) {
-            TextField("Name", text: $newFolderName)
-            Button("Create") {
-                if let f = browser.currentPhoneFolder, !newFolderName.isEmpty { model.newPhoneFolder(storage: f.storage, parent: f.folder, name: newFolderName) }
-                newFolderName = ""
-            }
-            Button("Cancel", role: .cancel) { newFolderName = "" }
-        }
-        .confirmationDialog(deleteTitle, isPresented: Binding(get: { !browser.pendingDelete.isEmpty }, set: { if !$0 { browser.pendingDelete = [] } }),
-                            titleVisibility: .visible) {
-            Button("Delete", role: .destructive) { model.deletePhone(browser.pendingDelete); browser.pendingDelete = [] }
-        }
-        .alert("Something went wrong", isPresented: Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })) {
+        .alert("Rename", isPresented: renamingPresented) { renameActions }
+        .alert("New Folder", isPresented: newFolderPresented) { newFolderActions }
+        .confirmationDialog(deleteTitle, isPresented: deletePresented, titleVisibility: .visible) { deleteActions }
+        .alert("Something went wrong", isPresented: errorPresented) {
             Button("OK") { model.error = nil }
-        } message: { Text(model.error ?? "") }
+        } message: {
+            Text(model.error ?? "")
+        }
+    }
+
+    private var detailContent: some View {
+        VStack(spacing: 0) {
+            if browser.location != nil {
+                FileOutline(browser: browser, model: model, version: browser.version)
+                    .overlay { listOverlay }
+                if browser.showsOrientationStrip {
+                    Divider()
+                    OrientationCheckBar(browser: browser, model: model)
+                }
+                Divider()
+                PathBar(browser: browser)
+            } else if model.device != nil {
+                LockedView()
+            } else {
+                EmptyDeviceView()
+            }
+            if model.activeCount > 0 {
+                Divider()
+                CopyProgressBar { openWindow(id: "transfers") }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var listOverlay: some View {
+        if browser.isLoading && browser.nodes.isEmpty {
+            ProgressView().controlSize(.small)
+        } else if browser.showsFilterEmptyState {
+            FilterEmptyView(browser: browser, model: model)
+        } else if browser.isCheckingOrientation && browser.nodes.isEmpty {
+            OrientationCheckingView(browser: browser)
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .navigation) {
+            ControlGroup {
+                Button { browser.goBack(model) } label: { Label("Back", systemImage: "chevron.left") }
+                    .disabled(!browser.canGoBack)
+                Button { browser.goForward(model) } label: { Label("Forward", systemImage: "chevron.right") }
+                    .disabled(!browser.canGoForward)
+            }
+            .controlGroupStyle(.navigation)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
+            if browser.isPhone { phoneToolbarItems }
+            transfersButton
+        }
+    }
+
+    private var phoneToolbarItems: some View {
+        HStack(spacing: 4) {
+            Text("Show")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Picker("Show", selection: filterSelection) {
+                ForEach(MediaFilter.allCases) { mode in
+                    Text(mode.shortTitle).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .help("Show all files, videos, photos, or only horizontal or vertical videos")
+            if browser.mediaFilter.requiresOrientationCheck { copyShownButton }
+            copyButton
+            Button { browser.newFolderPrompt = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
+                .help("New folder on the phone")
+            Button { browser.pendingDelete = browser.selection.compactMap(\.phoneRef) } label: { Label("Delete", systemImage: "trash") }
+                .disabled(browser.selection.isEmpty)
+                .help("Delete from the phone")
+        }
+    }
+
+    private var transfersButton: some View {
+        Button { openWindow(id: "transfers") } label: {
+            if model.activeCount > 0 {
+                Label { Text("Transfers") } icon: { ProgressView(value: model.activeProgress).progressViewStyle(.circular).controlSize(.small) }
+            } else {
+                Label("Transfers", systemImage: "arrow.up.arrow.down.circle")
+            }
+        }
+        .help(model.activeCount > 0 ? "Copying \(model.activeCount) \(model.activeCount == 1 ? "item" : "items")" : "Show transfers")
+    }
+
+    @ViewBuilder
+    private var renameActions: some View {
+        TextField("Name", text: $renameText)
+        Button("Rename") {
+            if let ref = browser.renaming?.phoneRef, !renameText.isEmpty, renameText != ref.entry.name { model.renamePhone(ref, to: renameText) }
+            browser.renaming = nil
+        }
+        Button("Cancel", role: .cancel) { browser.renaming = nil }
+    }
+
+    @ViewBuilder
+    private var newFolderActions: some View {
+        TextField("Name", text: $newFolderName)
+        Button("Create") {
+            if let f = browser.currentPhoneFolder, !newFolderName.isEmpty { model.newPhoneFolder(storage: f.storage, parent: f.folder, name: newFolderName) }
+            newFolderName = ""
+        }
+        Button("Cancel", role: .cancel) { newFolderName = "" }
+    }
+
+    @ViewBuilder
+    private var deleteActions: some View {
+        Button("Delete", role: .destructive) {
+            model.deletePhone(browser.pendingDelete)
+            browser.pendingDelete = []
+        }
+    }
+
+    private var renamingPresented: Binding<Bool> {
+        Binding(get: { browser.renaming != nil }, set: { if !$0 { browser.renaming = nil } })
+    }
+
+    private var newFolderPresented: Binding<Bool> {
+        Binding(get: { browser.newFolderPrompt }, set: { browser.newFolderPrompt = $0 })
+    }
+
+    private var deletePresented: Binding<Bool> {
+        Binding(get: { !browser.pendingDelete.isEmpty }, set: { if !$0 { browser.pendingDelete = [] } })
+    }
+
+    private var errorPresented: Binding<Bool> {
+        Binding(get: { model.error != nil }, set: { if !$0 { model.error = nil } })
+    }
+
+    private var filterSelection: Binding<MediaFilter> {
+        Binding(get: { browser.mediaFilter }, set: { browser.setFilter($0, model: model) })
     }
 
     /// The main job, always visible: copy the selected phone items to a Mac folder.
