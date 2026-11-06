@@ -4,6 +4,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Security
+
+- Added a mutation fuzzer for the parsers that read phone filenames and thumbnail bytes; CI runs it weekly and on TransferCore changes.
+
 ### Added
 
 - A Show menu in the phone list: All, Videos, Photos, Horizontal videos, and Vertical videos. Orientation modes hide every other file and keep subfolders visible.

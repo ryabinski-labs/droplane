@@ -41,6 +41,16 @@ brew install librsvg
 4. Run `swift build` and `swift test` locally. CI runs the same checks.
 5. Open a pull request and fill in the template.
 
+## Fuzzing
+
+Phone filenames and thumbnail bytes are untrusted. The fuzzer covers `JPEGDimensions`, `MediaClassifier`, and `NameSanitizer` with mutation inputs:
+
+```sh
+./scripts/fuzz.sh 60
+```
+
+CI runs it weekly and when `Sources/TransferCore`, `Fuzz`, or `scripts/fuzz.sh` changes. The harness exports `LLVMFuzzerTestOneInput`, so it can also run under libFuzzer or OSS-Fuzz where that runtime is available.
+
 ## Licensing of contributions
 
 Contributions are accepted under the project's [MIT License](LICENSE) (inbound equals outbound). There is no CLA. Do not submit code you do not have the right to license, and do not copy code from sources with incompatible licenses. Do not modify or vendor libmtp or libusb in this repository without discussing it first, because it changes the LGPL obligations.
