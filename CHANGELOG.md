@@ -16,6 +16,10 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 - An Orientation column reads Vertical, Horizontal, or Square from the phone's sample or thumbnail, with a checking strip and a count of files the phone could not describe.
 - Command-1 through Command-5 switch the Show mode from the View menu.
 
+### Fixed
+
+- Portrait videos encoded as landscape frames with a rotation matrix now show Vertical instead of Horizontal. Droplane reads the MP4 `tkhd` matrix from a small head or tail fetch and falls back to the thumbnail.
+
 ## [0.1.2] - 2026-11-03
 
 ### Added
