@@ -4,6 +4,14 @@ All notable changes are recorded here. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- A Show menu in the phone list: All, Videos, Photos, Horizontal videos, and Vertical videos. Orientation modes hide every other file and keep subfolders visible.
+- Copy All Shown copies exactly the videos the filter is showing and never a hidden row.
+- A Copied column marks phone files that Droplane copied to the Mac during the current session; previewing a file does not mark it.
+- An Orientation column reads Vertical, Horizontal, or Square from the phone's sample or thumbnail, with a checking strip and a count of files the phone could not describe.
+- Command-1 through Command-5 switch the Show mode from the View menu.
+
 ## [0.1.2] - 2026-11-03
 
 ### Added

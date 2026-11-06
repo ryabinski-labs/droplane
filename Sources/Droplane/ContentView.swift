@@ -20,7 +20,19 @@ struct ContentView: View {
             VStack(spacing: 0) {
                 if browser.location != nil {
                     FileOutline(browser: browser, model: model, version: browser.version)
-                        .overlay { if browser.isLoading && browser.nodes.isEmpty { ProgressView().controlSize(.small) } }
+                        .overlay {
+                            if browser.isLoading && browser.nodes.isEmpty {
+                                ProgressView().controlSize(.small)
+                            } else if browser.showsFilterEmptyState {
+                                FilterEmptyView(browser: browser, model: model)
+                            } else if browser.isCheckingOrientation && browser.nodes.isEmpty {
+                                OrientationCheckingView(browser: browser)
+                            }
+                        }
+                    if browser.showsOrientationStrip {
+                        Divider()
+                        OrientationCheckBar(browser: browser, model: model)
+                    }
                     Divider()
                     PathBar(browser: browser)
                 } else if model.device != nil {
@@ -47,6 +59,20 @@ struct ContentView: View {
             }
             ToolbarItemGroup(placement: .primaryAction) {
                 if browser.isPhone {
+                    HStack(spacing: 4) {
+                        Text("Show")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                        Picker("Show", selection: Binding(get: { browser.mediaFilter }, set: { browser.setFilter($0, model: model) })) {
+                            ForEach(MediaFilter.allCases) { mode in
+                                Text(mode.shortTitle).tag(mode)
+                            }
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .help("Show all files, videos, photos, or only horizontal or vertical videos")
+                    }
+                    if browser.mediaFilter.requiresOrientationCheck { copyShownButton }
                     copyButton
                     Button { browser.newFolderPrompt = true } label: { Label("New Folder", systemImage: "folder.badge.plus") }
                         .help("New folder on the phone")
@@ -68,6 +94,7 @@ struct ContentView: View {
         .task { model.startWatching(); browser.deviceChanged(model) }
         .onChange(of: model.deviceGeneration) { browser.deviceChanged(model) }
         .onChange(of: model.refreshToken) { browser.reload(model) }
+        .onChange(of: model.copiedVersion) { browser.copiedMarksChanged() }
         .onChange(of: model.showHidden) { browser.reload(model) }
         .onChange(of: model.transferWindowRequest) { openWindow(id: "transfers") }
         .onChange(of: model.activeCount) { _, n in NSApp.dockTile.badgeLabel = n > 0 ? "\(n)" : nil }
@@ -100,9 +127,7 @@ struct ContentView: View {
     /// The main job, always visible: copy the selected phone items to a Mac folder.
     private var copyButton: some View {
         let refs = browser.selection.compactMap(\.phoneRef)
-        let saved = URL(fileURLWithPath: copyDestination)
-        let destination = FileManager.default.fileExists(atPath: saved.path) ? saved : MacPlaces.downloads
-        let name = FileManager.default.displayName(atPath: destination.path)
+        let name = copyDestinationName
         return Menu {
             ForEach(MacPlaces.all) { place in
                 Button(place.name) { copy(refs, to: place.url) }
@@ -112,11 +137,41 @@ struct ContentView: View {
         } label: {
             Label("Copy to \(name)", systemImage: "square.and.arrow.down")
         } primaryAction: {
-            copy(refs, to: destination)
+            copy(refs, to: copyDestinationURL)
         }
         .labelStyle(.titleAndIcon)
         .disabled(refs.isEmpty)
         .help(refs.isEmpty ? "Select files on the phone to copy them to your Mac" : "Copy the selected items to \(name)")
+    }
+
+    private var shownRefs: [PhoneRef] {
+        browser.shownPhoneRefs
+    }
+
+    /// Copies exactly the videos the orientation filter is showing, never a hidden row.
+    private var copyShownButton: some View {
+        let refs = shownRefs
+        let count = refs.count
+        let noun = count == 1 ? "video" : "videos"
+        let destination = copyDestinationURL
+        let name = copyDestinationName
+        return Button {
+            copy(refs, to: destination)
+        } label: {
+            Label(count == 0 ? "Copy All Shown" : "Copy \(count) Shown", systemImage: "square.and.arrow.down.on.square")
+        }
+        .disabled(refs.isEmpty)
+        .help(count == 0 ? "No shown videos to copy" : "Copy the \(count) shown \(noun) to \(name)")
+        .accessibilityLabel(count == 0 ? "Copy all shown videos" : "Copy \(count) shown \(noun)")
+    }
+
+    private var copyDestinationURL: URL {
+        let saved = URL(fileURLWithPath: copyDestination)
+        return FileManager.default.fileExists(atPath: saved.path) ? saved : MacPlaces.downloads
+    }
+
+    private var copyDestinationName: String {
+        FileManager.default.displayName(atPath: copyDestinationURL.path)
     }
 
     private func copy(_ refs: [PhoneRef], to url: URL) {
@@ -328,6 +383,69 @@ struct CopyProgressBar: View {
             parts.append(p.showsPosition ? "\(amount) overall" : amount)
         }
         return parts.joined(separator: ", ")
+    }
+}
+
+/// Shown in the list area when the active filter matches nothing in this folder.
+struct FilterEmptyView: View {
+    let browser: BrowserState
+    let model: AppModel
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(browser.mediaFilter.emptyTitle, systemImage: "line.3.horizontal.decrease.circle")
+        } description: {
+            Text("Nothing in this folder matches the current filter.")
+        } actions: {
+            Button("Show All") { browser.setFilter(.all, model: model) }
+        }
+    }
+}
+
+/// Fills the list while the first orientation checks run and no match is visible yet.
+struct OrientationCheckingView: View {
+    let browser: BrowserState
+
+    var body: some View {
+        ContentUnavailableView {
+            Label("Checking videos", systemImage: "rectangle.stack")
+        } description: {
+            VStack(spacing: 8) {
+                Text("Showing only \(browser.mediaFilter == .verticalVideos ? "vertical" : "horizontal") videos as their orientation is read from the phone.")
+                ProgressView().controlSize(.small)
+            }
+        }
+    }
+}
+
+/// The slim strip above the path bar that explains orientation checking and failures.
+struct OrientationCheckBar: View {
+    let browser: BrowserState
+    let model: AppModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            if browser.isCheckingOrientation {
+                ProgressView().controlSize(.small)
+                Text("Checking orientation \(browser.orientationDone) of \(browser.orientationTotal)")
+                if browser.orientationFailed > 0 {
+                    Text("· \(browser.orientationFailed) could not be checked")
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            } else {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                Text("\(browser.orientationFailed) \(browser.orientationFailed == 1 ? "video" : "videos") could not be checked")
+                Spacer(minLength: 12)
+                Button("Show All") { browser.setFilter(.all, model: model) }
+                    .controlSize(.small)
+            }
+        }
+        .font(.caption)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(.bar)
     }
 }
 
