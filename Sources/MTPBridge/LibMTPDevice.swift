@@ -157,12 +157,17 @@ public final class LibMTPDevice: MTPDevice, @unchecked Sendable {
         return id
     }
 
-    /// Android exposes a representative sample for most media and a JPEG
-    /// thumbnail for almost everything else. Both carry the pixel size, so the
-    /// list can show orientation without downloading the full file.
+    /// Android exposes a representative sample for most photos and a JPEG
+    /// thumbnail for almost everything else. Videos also carry a display
+    /// rotation matrix in `tkhd`, which is the only reliable orientation for a
+    /// portrait clip encoded as a landscape frame.
     public func dimensions(of entry: DeviceEntry) throws -> MediaDimensions? {
-        guard !entry.isFolder, MediaClassifier.kind(of: entry.name) != .other else { return nil }
+        let kind = MediaClassifier.kind(of: entry.name)
+        guard !entry.isFolder, kind != .other else { return nil }
         mtpLock.lock(); defer { mtpLock.unlock() }
+        if kind == .video, let dimensions = videoDimensions(entry) {
+            return dimensions
+        }
         if let sample = LIBMTP_new_filesampledata_t() {
             defer { LIBMTP_destroy_filesampledata_t(sample) }
             if LIBMTP_Get_Representative_Sample(dev, entry.id, sample) == 0,
@@ -179,5 +184,31 @@ public final class LibMTPDevice: MTPDevice, @unchecked Sendable {
             }
         }
         return nil
+    }
+
+    /// Reads the MP4 `moov` box from the tail (most phones) or head (faststart)
+    /// and returns the rotated display size.
+    private func videoDimensions(_ entry: DeviceEntry) -> MediaDimensions? {
+        guard entry.size > 0 else { return nil }
+        let chunk: UInt32 = 256 * 1024
+        let offset = entry.size > UInt64(chunk) ? entry.size - UInt64(chunk) : 0
+        if let data = partialObject(entry, offset: offset, size: chunk),
+           let result = MP4Rotation.videoTrack(in: data) {
+            return MediaDimensions(width: result.width, height: result.height)
+        }
+        if offset > 0, let data = partialObject(entry, offset: 0, size: chunk),
+           let result = MP4Rotation.videoTrack(in: data) {
+            return MediaDimensions(width: result.width, height: result.height)
+        }
+        return nil
+    }
+
+    private func partialObject(_ entry: DeviceEntry, offset: UInt64, size: UInt32) -> Data? {
+        var data: UnsafeMutablePointer<UInt8>?
+        var returned: UInt32 = 0
+        guard LIBMTP_GetPartialObject(dev, entry.id, offset, size, &data, &returned) == 0,
+              let data, returned > 0 else { return nil }
+        defer { free(data) }
+        return Data(bytes: data, count: Int(returned))
     }
 }

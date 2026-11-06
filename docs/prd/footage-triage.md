@@ -83,6 +83,7 @@ Droplane lists every object on the phone in one Finder-style table. A person who
   - [ ] Given I click the Copied column header, then marked files sort before unmarked files, and a second click reverses the order.
 - **[P0]** As a person deciding which clip to copy, I want to see whether a photo or video is vertical or horizontal, so that I can pick the right take without opening it.
   - [ ] Given a 1080 by 1920 video, when its orientation resolves, then the Orientation cell reads "Vertical" with a portrait rectangle icon and the accessibility label "Vertical, 1080 by 1920".
+  - [ ] Given a video encoded as 3840 by 2160 with a 90-degree MP4 `tkhd` rotation matrix, then the cell reads "Vertical", because the encoded frame size is not the display orientation.
   - [ ] Given a 3840 by 2160 photo or video, then the cell reads "Horizontal" with a landscape rectangle icon.
   - [ ] Given a 1000 by 1000 file, then the cell reads "Square" with a square icon.
   - [ ] Given a phone that returns no sample or thumbnail for a file, then the cell reads an em dash and its help text reads "Orientation not available from this phone"; the app does not retry that file in the same session.
@@ -101,7 +102,7 @@ Priorities: **P0** release fails without it · **P1** ship-blocking unless waive
 - **Surface:** the main browser window's phone pane only. The Mac pane keeps its current columns and behavior (DL-004).
 - **Show control:** a toolbar pop-up button labelled "Show" with five items: All, Videos, Photos, Horizontal videos, Vertical videos. The toolbar uses compact labels (All, Videos, Photos, Horizontal, Vertical) so the control fits beside the copy buttons; the View menu uses the full names. Default All. The same five modes appear in the View menu with keyboard shortcuts Command-1 through Command-5. The control is hidden when the Mac pane is active. The chosen mode stays active while navigating between phone folders in that window and resets to All when the app launches (A-003, A-014, A-016).
 - **Filtering rule:** All shows every item. Videos shows folders and video files. Photos shows folders and photo files. Horizontal videos and Vertical videos show folders plus only the videos whose width is greater than height, or height greater than width, respectively. Every other file is hidden, including square videos, photos, documents, and unknown orientations (DL-008, DL-011).
-- **Orientation checking:** choosing Horizontal videos or Vertical videos starts a background check of every video in the current folder, one phone request at a time, using the session cache first. A slim strip above the path bar shows a small spinner and "Checking orientation 12 of 40" while checks run. Matching rows appear as their checks complete, with list updates batched at most every 150 milliseconds. When checks finish with failures, the strip reads "3 videos could not be checked" with a Show All button. The strip is hidden in All, Videos, and Photos, and when checking finishes without failures.
+- **Orientation checking:** choosing Horizontal videos or Vertical videos starts a background check of every video in the current folder, one phone request at a time, using the session cache first. For videos, Droplane reads the MP4 `moov`/`tkhd` rotation matrix from a 256 KB head or tail fetch through `LIBMTP_GetPartialObject` and applies it before falling back to the thumbnail; Android often stores a portrait clip as a landscape frame plus a 90-degree matrix. A slim strip above the path bar shows a small spinner and "Checking orientation 12 of 40" while checks run. Matching rows appear as their checks complete, with list updates batched at most every 150 milliseconds. When checks finish with failures, the strip reads "3 videos could not be checked" with a Show All button. The strip is hidden in All, Videos, and Photos, and when checking finishes without failures.
 - **Copy All Shown:** in Horizontal videos and Vertical videos, a toolbar button labelled "Copy 3 Shown" sits next to the main copy control. It enqueues exactly the visible video rows, never folders or hidden rows, and uses the same destination and conflict rules as the main copy command. It is disabled when no video row is visible (A-013).
 - **Columns:** two new list columns to the right of Kind. Copied is 44 points wide and shows a green `checkmark.circle.fill` or nothing. Orientation is 100 points wide and shows an SF Symbol plus text: `rectangle.portrait` with "Vertical", `rectangle.landscape` with "Horizontal", or `square` with "Square". Unknown values show an em dash in secondary color. Both columns are hidden on the Mac pane. The existing Name, Date Modified, Size, and Kind columns keep their order and widths.
 - **Loading:** in All, Videos, and Photos the folder lists immediately as today; orientation cells start as an em dash and are replaced in place, with no full-list spinner and no modal. Copied marks read from memory, so they appear on the same refresh as a finished download.
@@ -111,9 +112,9 @@ Priorities: **P0** release fails without it · **P1** ship-blocking unless waive
 
 ## 7. Scope
 
-**In scope:** media classification by uniform type; the five-mode Show menu in the toolbar and View menu; phone-only Copied and Orientation columns; the session-only copied set updated on successful downloads; orientation checks for all videos in Horizontal and Vertical modes; a Copy All Shown toolbar action; a phone media-dimension reader in MTPBridge using libmtp representative samples or thumbnails; a JPEG dimension parser; deterministic dimensions and a mix of orientations in the Demo Phone; row-level background updates; unit tests for classification, orientation math, the copied set, and filter selection; README and CHANGELOG notes.
+**In scope:** media classification by uniform type; the five-mode Show menu in the toolbar and View menu; phone-only Copied and Orientation columns; the session-only copied set updated on successful downloads; orientation checks for all videos in Horizontal and Vertical modes; a Copy All Shown toolbar action; a phone media-dimension reader in MTPBridge using MP4 `tkhd` rotation matrices, libmtp representative samples, or thumbnails; a JPEG dimension parser; an MP4 rotation parser; deterministic dimensions and a mix of orientations in the Demo Phone; row-level background updates; unit tests for classification, orientation math, the copied set, and filter selection; README and CHANGELOG notes.
 **Out of scope:** persistent copy history; checking the Mac destination; filter, marks, or orientation on the Mac pane; search; recursive scans; sorting that triggers a full orientation preload; thumbnails, playback, proxies, transcoding; PrimeCam sidecar parsing; network, telemetry, accounts, and new permissions.
-**Dependencies:** libmtp and libusb already bundled; the libmtp calls `LIBMTP_Get_Representative_Sample` and `LIBMTP_Get_Thumbnail`; one physical Android phone for hardware verification; the Demo Phone for automated and visual checks.
+**Dependencies:** libmtp and libusb already bundled; the libmtp calls `LIBMTP_GetPartialObject`, `LIBMTP_Get_Representative_Sample`, and `LIBMTP_Get_Thumbnail`; one physical Android phone for hardware verification; the Demo Phone for automated and visual checks.
 **Constraints:** Swift 5.9, SwiftUI and AppKit, macOS 14 or later, MIT license, no new third-party packages, no sandbox entitlement change, no remote push before maintainer approval.
 
 ## 8. Risks and open questions
@@ -145,7 +146,7 @@ Priorities: **P0** release fails without it · **P1** ship-blocking unless waive
 
 - **Stored:** no files and no defaults keys. `AppModel` holds a session-only set of copied keys built from the phone file name, byte size, and modification time (A-004). Each browser window holds a session-only orientation cache keyed by the same tuple plus the folder path. Both are cleared when the app or window closes. No filenames are written to disk.
 - **Migration:** none, because nothing is persisted and no schema exists.
-- **Integrations:** libmtp through the existing `MTPDevice` abstraction. `LibMTPDevice` tries `LIBMTP_Get_Representative_Sample` for width and height, then falls back to `LIBMTP_Get_Thumbnail` plus a JPEG SOF parser. No authentication and no external service. Tests replace the phone with `DemoDevice`, which returns deterministic dimensions, and with a JPEG fixture for the parser.
+- **Integrations:** libmtp through the existing `MTPDevice` abstraction. `LibMTPDevice` reads the MP4 `moov`/`tkhd` rotation matrix from a 256 KB head or tail fetch with `LIBMTP_GetPartialObject` for videos, then tries `LIBMTP_Get_Representative_Sample` for width and height, then falls back to `LIBMTP_Get_Thumbnail` plus a JPEG SOF parser. No authentication and no external service. Tests replace the phone with `DemoDevice`, which returns deterministic dimensions, and with MP4 and JPEG fixtures for the parsers.
 
 ## 13. Non-functional requirements
 
@@ -181,6 +182,7 @@ Priorities: **P0** release fails without it · **P1** ship-blocking unless waive
 | A-014 | interface | The five Show modes also appear in the View menu with Command-1 through Command-5. | Gives keyboard users a discoverable path and matches macOS menu conventions. | Those shortcuts conflict with an existing command or the menu becomes cluttered. |
 | A-015 | interface | The orientation checking progress uses a slim strip above the path bar, hidden when there is nothing to report. | Progress belongs next to the list without taking a permanent row. | The user wants progress in the toolbar instead. |
 | A-016 | interface | The toolbar Show picker uses compact labels (All, Videos, Photos, Horizontal, Vertical); the View menu uses the full mode names. | The full names overflow the default window width and push the primary copy button into an icon-only state. | The user wants the full names in the toolbar and accepts a wider window or a second row. |
+| A-017 | integrations | Video orientation reads up to 256 KB from the file tail, then the head, with `LIBMTP_GetPartialObject` and parses the MP4 `tkhd` matrix; if that fails it falls back to the thumbnail. | A portrait clip can be encoded as a landscape frame with a rotation matrix, so the thumbnail may be the wrong orientation. The matrix is authoritative and the tail is small. | The phone does not support partial objects, or the video container is not MP4/QuickTime. |
 
 ## 15. Decision log
 
@@ -213,7 +215,7 @@ Priorities: **P0** release fails without it · **P1** ship-blocking unless waive
 | errors | specified | §5 |
 | interface | specified | §6, A-006, A-007, A-008, A-011, A-014, A-015, A-016 |
 | data | specified | §12, A-004 |
-| integrations | specified | §12, A-010 |
+| integrations | specified | §12, A-010, A-017 |
 | non_functional | specified | §13 |
 | constraints | specified | §7 |
 | non_goals | specified | §4 |
